@@ -7,6 +7,7 @@
 
   var Parse = window.Simplex.parse;
   var MI = window.Simplex.matrixInput;
+  var Generator = window.Simplex.generator;
 
   var EXAMPLES = [
     {
@@ -50,6 +51,25 @@
     buildBtn.className = 'btn primary';
     buildBtn.textContent = 'בנה טבלאות מקדמים';
     sizeRow.appendChild(buildBtn);
+
+    var randomRow = document.createElement('p');
+    var randomBtn = document.createElement('button');
+    randomBtn.type = 'button';
+    randomBtn.className = 'btn primary';
+    randomBtn.textContent = '🎲 תרגיל אקראי';
+    randomBtn.addEventListener('click', function () {
+      var p = Generator.generateProblem({});
+      if (!p) { // extremely unlikely; retry with a fresh seed
+        p = Generator.generateProblem({ seed: Date.now() >>> 0 });
+      }
+      if (!p) { window.alert('לא הצלחתי לייצר תרגיל — נסה שוב.'); return; }
+      nSel.value = String(p.n);
+      mSel.value = String(p.m);
+      buildGrids(p);
+    });
+    randomRow.appendChild(randomBtn);
+    randomRow.appendChild(document.createTextNode(' — בעיה חדשה עם מספרים נוחים, נפתרת ב-2–4 איטרציות.'));
+    card.appendChild(randomRow);
 
     var exampleRow = document.createElement('p');
     exampleRow.appendChild(document.createTextNode('או טען דוגמה מחומרי הקורס: '));

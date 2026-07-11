@@ -14,6 +14,7 @@ var Check = require(path.join(__dirname, '../js/answer-check.js'));
 var RR = require(path.join(__dirname, '../js/row-reduce.js'));
 var Engine = require(path.join(__dirname, '../js/engine.js'));
 var Session = require(path.join(__dirname, '../js/session.js'));
+var Generator = require(path.join(__dirname, '../js/generator.js'));
 var wyndor = require(path.join(__dirname, 'fixtures/wyndor.js'));
 var hw1a = require(path.join(__dirname, 'fixtures/hw1a.js'));
 
@@ -313,6 +314,58 @@ walkSession(hw1a);
   check('session: auto tracked separately from help',
     autos.length === 1 && autos[0].where === 'הקמה' &&
     Session.helpSummary(s).length === 1);
+})();
+
+/* ---------- generator ---------- */
+
+check('isNice integer', Generator.isNice(5) && Generator.isNice(-3));
+check('isNice third', Generator.isNice(1 / 3) && Generator.isNice(-2 / 3));
+check('isNice rejects big', Generator.isNice(150) === false);
+check('isNice rejects ugly denom', Generator.isNice(1 / 7) === false);
+
+// simulate must agree with the hand-checked fixtures
+var simW = Generator.simulate(wyndor.problem, 6);
+check('simulate wyndor: optimal in 3', simW.status === 'optimal' && simW.iterations === 3, JSON.stringify(simW.status) + '/' + simW.iterations);
+var simH = Generator.simulate(hw1a.problem, 6);
+check('simulate hw1a: unbounded in 3', simH.status === 'unbounded' && simH.iterations === 3, JSON.stringify(simH.status) + '/' + simH.iterations);
+
+// deterministic batch: every generated problem passes its own gates
+(function () {
+  var optCount = 0, unbCount = 0, bad = 0;
+  for (var seed = 1; seed <= 20; seed++) {
+    var p = Generator.generateProblem({ seed: seed * 7919 });
+    if (!p) { bad++; continue; }
+    var sim = Generator.simulate(p, 5);
+    var okIters = sim.iterations >= 2 && sim.iterations <= 4;
+    var okNice = Generator.allNice(sim.allValues);
+    if (!okIters || !okNice || sim.status === 'toolong') bad++;
+    if (sim.status === 'optimal') optCount++;
+    if (sim.status === 'unbounded') unbCount++;
+  }
+  check('generator: 20 seeds all valid', bad === 0, 'bad=' + bad);
+  check('generator: produced optimal problems', optCount >= 10, 'opt=' + optCount);
+  check('generator: produced at least one unbounded', unbCount >= 1, 'unb=' + unbCount);
+})();
+
+// wantUnbounded flag honored
+var pu = Generator.generateProblem({ seed: 12345, wantUnbounded: true });
+check('generator: wantUnbounded returns unbounded', pu && Generator.simulate(pu, 5).status === 'unbounded', pu ? 'ok' : 'null');
+
+// reverse-problem drill: n=m=2, optimal, final basis {1,2}
+(function () {
+  var found = 0;
+  for (var seed = 1; seed <= 8; seed++) {
+    var rp = Generator.generateReverseProblem({ seed: seed * 104729 });
+    if (!rp) continue;
+    found++;
+    check('reverse: is 2x2', rp.n === 2 && rp.m === 2);
+    var sim = Generator.simulate(rp, 4);
+    check('reverse: optimal', sim.status === 'optimal');
+    var fb = sim.given.B.slice().sort(function (a, b) { return a - b; });
+    check('reverse: final basis is {1,2}', fb[0] === 1 && fb[1] === 2, JSON.stringify(fb));
+    check('reverse: B⁻¹ nice', Generator.allNice(sim.given.Binv));
+  }
+  check('reverse: generator found problems', found >= 5, 'found=' + found);
 })();
 
 /* Serialization round-trip: a session saved mid-exercise (plain JSON) must
