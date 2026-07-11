@@ -192,7 +192,8 @@
     var fwd = btn('שלב קדימה ⏩', 'btn', goForward);
     fwd.id = 'tl-fwd';
     fwd.disabled = !timeline.future.length;
-    var pos = session.phase === 'setup' ? 'הקמה'
+    var pos = session.mode === 'reverse' ? 'שחזור'
+      : session.phase === 'setup' ? 'הקמה'
       : session.phase === 'done' ? 'סיום'
       : 'איטרציה ' + (session.iterIndex + 1);
     bar.appendChild(back);
@@ -245,7 +246,50 @@
     return parts.length ? parts.join('') : '0';
   }
 
+  /* The GIVEN optimal tableau for the reverse drill: identity under the basic
+   * vars, B⁻¹ under the slacks, y (negated) in the Z row. Displayable from
+   * B⁻¹ and y alone — the student reads these off to rebuild the problem. */
+  function reverseGivenHTML() {
+    var r = session.reverse;
+    var n = session.problem.n, m = session.problem.m;
+    var h = '<h2>🔍 שחזור הבעיה מהטבלה האופטימלית</h2>';
+    h += '<p>נתונה הטבלה האופטימלית ואגף ימין ההתחלתי <span class="ltr-math">b</span>. ' +
+      'שחזר את הבעיה המקורית — <b>מה שמסומן בצבע הוא מה שקוראים ישירות מהטבלה</b>.</p>';
+    h += '<div class="ref-cols">';
+
+    // optimal tableau (RHS hidden — the student computes xB and Z)
+    h += '<div><div class="mini-label">הטבלה האופטימלית (הבסיס: x1, x2)</div>';
+    h += '<table class="mini-matrix ref-table ltr-math"><tr><th></th>';
+    for (var v = 1; v <= n + m; v++) {
+      h += '<th class="' + (v <= n ? 'orig' : 'slack') + '">x<sub>' + v + '</sub></th>';
+    }
+    h += '<th class="bcol">RHS</th></tr>';
+    // Z row: 0 under basic, -y under slacks (highlighted), ? RHS
+    h += '<tr><th>Z</th>';
+    for (var zc = 1; zc <= n; zc++) h += '<td>0</td>';
+    r.y.forEach(function (yi) { h += '<td class="read-hl">' + fmt(-yi) + '</td>'; });
+    h += '<td class="bcol qcell">?</td></tr>';
+    // body rows: identity under basic, B⁻¹ under slacks (highlighted), ? RHS
+    for (var row = 0; row < m; row++) {
+      h += '<tr><th>x<sub>' + r.basis[row] + '</sub></th>';
+      for (var bc = 0; bc < n; bc++) h += '<td>' + (bc === row ? 1 : 0) + '</td>';
+      r.Binv[row].forEach(function (bv) { h += '<td class="read-hl">' + fmt(bv) + '</td>'; });
+      h += '<td class="bcol qcell">?</td></tr>';
+    }
+    h += '</table>';
+    h += '<div class="read-legend"><span class="read-hl">מודגש</span> = B⁻¹ ו-(−yᵀ) לקריאה ישירה</div></div>';
+
+    // initial RHS (given)
+    h += '<div><div class="mini-label">אגף ימין התחלתי b</div>';
+    h += matrixHTML(colVec(r.b), { rowLabels: r.b.map(function (_, i) { return 'אילוץ ' + (i + 1); }) });
+    h += '</div>';
+
+    h += '</div>';
+    els.problemRef.innerHTML = h;
+  }
+
   function renderProblemRef() {
+    if (session.mode === 'reverse') { reverseGivenHTML(); return; }
     var p = session.problem;
     var html = '<h2>התרגיל</h2><div class="ref-cols"><div class="formulation ltr-math">';
     html += 'Max Z = ' + linComb(p.c) + '<br>s.t.<br>';
@@ -290,7 +334,19 @@
     els.history.innerHTML = html + '</ul></div>';
   }
 
+  /** Prompt label for a quantity step — reverse steps carry an explicit one. */
+  function stepLabel(st) {
+    return st.label || Session.quantityLabel(st.quantityId);
+  }
+
   function gridLabelsFor(st) {
+    // reverse-drill steps carry their own labels (no per-iteration canonical)
+    if (session.mode === 'reverse') {
+      var out = {};
+      if (st.rowLabels) out.rowLabels = varLabels(st.rowLabels);
+      if (st.colLabels) out.colLabels = st.colLabels;
+      return out;
+    }
     var c = session.canonical;
     var g = c ? c.given : null;
     var setup = session.phase === 'setup';
@@ -309,6 +365,16 @@
     var c = session.canonical;
     if (st.kind === 'stepRecall') {
       return '<div class="done-badge">✓ ' + STEP_SHORT[st.correctStep] + '</div>';
+    }
+    if (st.kind === 'quiz') {
+      var chosen = (st.options.filter(function (o) { return o.id === st.correct; })[0] || {}).label || '✓';
+      return '<div class="done-badge">✓ ' + chosen + '</div>';
+    }
+    if (session.mode === 'reverse') {
+      var lbl = stepLabel(st);
+      if (st.qtype === 'scalar') return '<div class="done-item ltr-math">' + lbl + ' = ' + fmt(st.correct) + '</div>';
+      var rlabels = gridLabelsFor(st);
+      return matrixHTML(st.correct, { label: lbl, colLabels: rlabels.colLabels, rowLabels: rlabels.rowLabels });
     }
     if (st.kind === 'decision') {
       var text;
@@ -378,7 +444,8 @@
     var done = session.stepQueue.slice(0, session.stepIndex);
     if (done.length && session.phase !== 'done') {
       html += '<div class="card done-steps"><h3>' +
-        (session.phase === 'setup' ? 'ההקמה עד כה' : 'האיטרציה הנוכחית עד כה') +
+        (session.mode === 'reverse' ? 'מה שחזרנו עד כה'
+          : session.phase === 'setup' ? 'ההקמה עד כה' : 'האיטרציה הנוכחית עד כה') +
         '</h3><div class="mini-row">';
       done.forEach(function (st) { html += completedHTML(st); });
       html += '</div></div>';
@@ -398,13 +465,16 @@
     var sub = session.substage;
 
     var card = el('div', 'card prompt');
-    var title = session.phase === 'setup'
-      ? '🚀 פתיחת התרגיל'
-      : '🔁 איטרציה ' + (session.iterIndex + 1);
+    var title = session.mode === 'reverse'
+      ? '🔍 שחזור הבעיה'
+      : session.phase === 'setup'
+        ? '🚀 פתיחת התרגיל'
+        : '🔁 איטרציה ' + (session.iterIndex + 1);
     card.appendChild(el('h3', 'prompt-title', title));
 
     var applyReveal;
     if (st.kind === 'stepRecall') applyReveal = renderStepRecall(card, st);
+    else if (st.kind === 'quiz') applyReveal = renderQuiz(card, st);
     else if (st.kind === 'decision') applyReveal = renderDecision(card, st);
     else if (sub === 'recall') applyReveal = renderQuantityRecall(card, st);
     else if (sub === 'dims') applyReveal = renderDims(card, st);
@@ -505,7 +575,7 @@
 
   function renderDims(card, st) {
     var why = Session.getWhyForCurrent(session);
-    var label = Session.quantityLabel(st.quantityId);
+    var label = stepLabel(st);
     card.appendChild(el('p', 'prompt-q',
       'זיהית נכון: <b>' + label + '</b>. <b>מה הממדים?</b>'));
 
@@ -619,6 +689,7 @@
 
   /** Operands for the multiplication scratch area of the current step. */
   function multPresetFor(st) {
+    if (st.scratchPreset) return JSON.parse(JSON.stringify(st.scratchPreset));
     var c = session.canonical;
     if (!c) return null;
     var g = c.given;
@@ -646,7 +717,7 @@
 
   function renderGridFill(card, st) {
     var why = Session.getWhyForCurrent(session);
-    var label = Session.quantityLabel(st.quantityId);
+    var label = stepLabel(st);
     card.appendChild(el('p', 'prompt-q', 'מלא את הערכים של <b>' + label + '</b>:'));
 
     var gridBox = el('div', 'fill-box');
@@ -719,13 +790,18 @@
       onEnter: doCheck,
     });
     gridBox.appendChild(btn('בדוק', 'btn primary', doCheck));
-    if (st.quantityId === 'Binv' && !session.examMode) {
+    if ((st.quantityId === 'Binv' || st.inverseCalc) && !session.examMode) {
       // Pure algebra — a one-click final answer that is NOT counted as help.
       gridBox.appendChild(btn('⚡ חשב עבורי (דירוג אוטומטי)', 'btn auto-btn', function () {
         grid.setStrings(st.correct.map(function (row) { return row.map(fmt); }));
         Session.recordAuto(session);
         doCheck();
       }));
+    }
+    if (st.inverseCalc) {
+      card.appendChild(el('p', 'calc-tip inverse-tip',
+        '💡 להיפוך ידני צעד-צעד: פתח את <a href="calculator.html" target="_blank">מחשבון הדירוג</a> ' +
+        'במצב "מציאת הופכית", הזן את B⁻¹, ודרג [B⁻¹ | I] עד ש-B יופיע בצד ימין.'));
     }
     var fb = feedbackLine(card);
     grid.focusFirst();
@@ -758,7 +834,7 @@
   function renderScalarFill(card, st) {
     var why = Session.getWhyForCurrent(session);
     card.appendChild(el('p', 'prompt-q',
-      'חשב את <b>' + Session.quantityLabel(st.quantityId) + '</b>:'));
+      'חשב את <b>' + stepLabel(st) + '</b>:'));
     var box = el('div', 'fill-box ltr-math');
     var inp = document.createElement('input');
     inp.type = 'text';
@@ -809,7 +885,7 @@
 
   function renderIndexListFill(card, st) {
     var why = Session.getWhyForCurrent(session);
-    var label = Session.quantityLabel(st.quantityId);
+    var label = stepLabel(st);
     card.appendChild(el('p', 'prompt-q',
       'מלא את <b>' + label + '</b> — אינדקסים של משתנים לפי הסדר (למשל 3 או x3):'));
     var box = el('div', 'fill-box ltr-math index-list');
@@ -863,7 +939,7 @@
 
   function renderColumnPickFill(card, st) {
     var why = Session.getWhyForCurrent(session);
-    var label = Session.quantityLabel(st.quantityId);
+    var label = stepLabel(st);
     card.appendChild(el('p', 'prompt-q',
       'בנה את <b>' + label + '</b>: בחר את העמודות המתאימות מתוך (A|I) המקורית, לפי הסדר.'));
     var picker = CP.create(card, {
@@ -892,6 +968,31 @@
     return function (r) {
       picker.setPicked(r.value);
       fb.textContent = 'זה הסדר הנכון — לחץ "אשר בחירה".';
+    };
+  }
+
+  /* --- quiz (reverse drill) — like decisions but options live on the step --- */
+
+  function renderQuiz(card, st) {
+    var why = Session.getWhyForCurrent(session);
+    card.appendChild(el('p', 'prompt-q', st.question));
+    var box = el('div', 'decision-options quiz-options');
+    var buttons = {};
+    shuffled(st.options).forEach(function (opt) {
+      var b = btn(opt.label, 'option-btn quiz-btn', function () {
+        var res = Session.submitQuiz(session, opt.id);
+        b.classList.remove('ok', 'bad');
+        b.classList.add(res.ok ? 'ok' : 'bad');
+        if (res.ok) showSuccess(card, null, why);
+      });
+      b.dataset.id = String(opt.id);
+      buttons[opt.id] = b;
+      box.appendChild(b);
+    });
+    card.appendChild(box);
+    return function (r) {
+      var b = buttons[r.value];
+      if (b) b.classList.add('revealed');
     };
   }
 
@@ -948,7 +1049,53 @@
 
   function renderFinal() {
     if (examTicker) { clearInterval(examTicker); examTicker = null; }
+    if (session.mode === 'reverse') { renderReverseFinal(); return; }
     renderFinalBody();
+  }
+
+  function renderReverseFinal() {
+    var r = session.reverse;
+    var n = session.problem.n, m = session.problem.m;
+    var card = el('div', 'card final');
+    card.appendChild(el('h2', null, '🎉 שחזרת את הבעיה המקורית!'));
+
+    // reconstructed formulation
+    card.appendChild(el('div', null,
+      '<div class="mini-label">הבעיה המקורית ששוחזרה:</div>' +
+      '<div class="formulation ltr-math">Max Z = ' + linComb(r.c) + '<br>s.t.<br>' +
+      r.A.map(function (row, i) { return linComb(row) + ' ≤ ' + fmt(r.b[i]); }).join('<br>') +
+      '<br>x<sub>1</sub>, x<sub>2</sub> ≥ 0</div>'));
+
+    // completed optimal tableau (RHS now filled)
+    var h = '<div class="mini-label">הטבלה האופטימלית המלאה (RHS הושלם):</div>';
+    h += '<table class="mini-matrix ref-table ltr-math"><tr><th></th>';
+    for (var v = 1; v <= n + m; v++) h += '<th class="' + (v <= n ? 'orig' : 'slack') + '">x<sub>' + v + '</sub></th>';
+    h += '<th class="bcol">RHS</th></tr>';
+    h += '<tr><th>Z</th>';
+    for (var zc = 1; zc <= n; zc++) h += '<td>0</td>';
+    r.y.forEach(function (yi) { h += '<td>' + fmt(-yi) + '</td>'; });
+    h += '<td class="bcol read-hl">' + fmt(-r.Z) + '</td></tr>';
+    for (var row = 0; row < m; row++) {
+      h += '<tr><th>x<sub>' + r.basis[row] + '</sub></th>';
+      for (var bc = 0; bc < n; bc++) h += '<td>' + (bc === row ? 1 : 0) + '</td>';
+      r.Binv[row].forEach(function (bv) { h += '<td>' + fmt(bv) + '</td>'; });
+      h += '<td class="bcol read-hl">' + fmt(r.xB[row]) + '</td></tr>';
+    }
+    h += '</table>';
+    card.appendChild(el('div', null, h));
+
+    card.appendChild(el('p', 'shadow-note',
+      'ההיסק ההפוך: מ-B⁻¹ (מתחת למשתני הסרק) → B → A; מ-yᵀ (שורת Z, בסימן הפוך) → cᵀ = yᵀB; ' +
+      'ואת ה-RHS השלמנו ב-xB = B⁻¹b ו-Z = yᵀb. זו בדיוק שאלה 3 בתרגיל הבית.'));
+
+    var hs = Session.helpSummary(session);
+    if (hs.length) {
+      card.appendChild(el('p', 'help-tip', 'נעזרת ברמזים ב-' + hs.length + ' שלבים — שווה חזרה.'));
+    } else {
+      card.appendChild(el('p', 'no-help', 'שחזרת הכול בלי עזרה — מצוין! 💪'));
+    }
+    card.appendChild(btn('תרגיל חדש', 'btn primary big', function () { onNewProblemCb(); }));
+    els.prompt.appendChild(card);
   }
 
   function renderExamSummary(card) {

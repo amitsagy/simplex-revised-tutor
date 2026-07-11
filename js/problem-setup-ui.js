@@ -20,7 +20,7 @@
     },
   ];
 
-  function init(container, onStart) {
+  function init(container, onStart, onStartReverse) {
     container.innerHTML = '';
 
     var card = document.createElement('div');
@@ -82,6 +82,23 @@
     randomRow.appendChild(randomBtn);
     randomRow.appendChild(document.createTextNode(' — בעיה חדשה עם מספרים נוחים, נפתרת ב-2–4 איטרציות.'));
     card.appendChild(randomRow);
+
+    if (onStartReverse) {
+      var reverseRow = document.createElement('p');
+      var reverseBtn = document.createElement('button');
+      reverseBtn.type = 'button';
+      reverseBtn.className = 'btn';
+      reverseBtn.textContent = '🔍 תרגול שחזור (סגנון שאלה 3)';
+      reverseBtn.addEventListener('click', function () {
+        var p = Generator.generateReverseProblem({});
+        if (!p) p = Generator.generateReverseProblem({ seed: Date.now() >>> 0 });
+        if (!p) { window.alert('לא הצלחתי לייצר תרגיל שחזור — נסה שוב.'); return; }
+        onStartReverse(p);
+      });
+      reverseRow.appendChild(reverseBtn);
+      reverseRow.appendChild(document.createTextNode(' — נתונה טבלה אופטימלית, ומשחזרים את הבעיה המקורית אחורה.'));
+      card.appendChild(reverseRow);
+    }
 
     var exampleRow = document.createElement('p');
     exampleRow.appendChild(document.createTextNode('או טען דוגמה מחומרי הקורס: '));

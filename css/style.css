@@ -499,6 +499,20 @@ select {
   font-size: 0.9rem;
 }
 .inverse-result { margin: 8px 0; }
+
+/* reverse-engineering drill */
+.mini-matrix td.read-hl {
+  background: var(--reveal-bg);
+  color: var(--reveal);
+  font-weight: 700;
+  border-radius: 4px;
+}
+.mini-matrix td.qcell { color: var(--muted); font-weight: 700; }
+.read-legend { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+.read-legend .read-hl { background: var(--reveal-bg); color: var(--reveal); border-radius: 4px; padding: 0 4px; font-weight: 700; }
+.quiz-options { flex-direction: column; align-items: stretch; }
+.quiz-btn { text-align: start; }
+.inverse-tip a { color: var(--accent); }
 .shadow-box {
   margin: 12px 0;
   padding: 10px 14px;

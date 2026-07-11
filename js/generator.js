@@ -176,8 +176,9 @@
       var sim = simulate(p, 4);
       if (sim.status !== 'optimal') continue;
       if (sim.iterations < 2 || sim.iterations > 3) continue;
-      var finalB = sim.given.B.slice().sort(function (a, b2) { return a - b2; });
-      if (!(finalB[0] === 1 && finalB[1] === 2)) continue; // both originals basic
+      // require the ORDERED basis [1,2] so B = A and cB = c directly
+      // (no column reordering for the student to untangle)
+      if (!(sim.given.B[0] === 1 && sim.given.B[1] === 2)) continue;
       if (!allNice(sim.allValues)) continue;
       // B⁻¹ itself must be nice to read off the tableau
       if (!allNice(sim.given.Binv)) continue;

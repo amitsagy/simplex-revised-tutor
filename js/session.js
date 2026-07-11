@@ -16,6 +16,7 @@
   var Engine = isNode ? require('./engine.js') : window.Simplex.engine;
   var Check = isNode ? require('./answer-check.js') : window.Simplex.answerCheck;
   var Parse = isNode ? require('./parse.js') : window.Simplex.parse;
+  var Generator = isNode ? require('./generator.js') : window.Simplex.generator;
 
   /* NOTE: no "שלב N" numbering in the labels — the options are shuffled, and
    * a visible number would give the order away. */
@@ -194,8 +195,130 @@
 
   function initialSubstage(step) {
     if (!step) return null;
-    if (step.kind === 'quantity') return step.qtype === 'scalar' ? 'fill' : 'recall';
+    if (step.kind === 'quantity') {
+      if (step.qtype === 'scalar') return 'fill';
+      if (step.noRecall) return 'dims';   // reverse drill: the prompt names the quantity
+      return 'recall';
+    }
     return 'choose';
+  }
+
+  /* ---- reverse-engineering drill (homework Q3): rebuild the problem from
+   * its optimal tableau. Same state machine, a self-contained step queue. ---- */
+
+  function reverseQuiz(id, question, options, correct, why) {
+    return { kind: 'quiz', key: id, question: question, options: options, correct: correct, why: why };
+  }
+
+  function buildReverseSteps(s) {
+    var r = s.reverse;
+    var n = s.problem.n, m = s.problem.m;
+    var steps = [];
+
+    steps.push(reverseQuiz('q-binv-loc',
+      'בטבלה האופטימלית — <b>איפה קוראים את המטריצה B⁻¹?</b>',
+      [
+        { id: 'slacks', label: 'בעמודות משתני הסרק, בשורות האילוצים' },
+        { id: 'zrow', label: 'בשורת ה-Z' },
+        { id: 'orig', label: 'בעמודות המשתנים המקוריים' },
+        { id: 'rhs', label: 'בעמודת ה-RHS' },
+      ], 'slacks',
+      'זהו העיקרון המרכזי (!!!): העמודות שמתחת למשתני הסרק, בשורות האילוצים, מרכיבות בדיוק את B⁻¹ של האיטרציה.'));
+
+    steps.push({ kind: 'quantity', key: 'Binv', quantityId: 'Binv', qtype: 'grid',
+      dims: [m, m], correct: r.Binv, noRecall: true,
+      label: 'B⁻¹', why: 'העתקה ישירה מהאזור שמתחת למשתני הסרק בטבלה האופטימלית.' });
+
+    steps.push({ kind: 'quantity', key: 'Bmatrix', quantityId: 'Bmatrix', qtype: 'grid',
+      dims: [m, m], correct: r.Bmatrix, noRecall: true, inverseCalc: true,
+      label: 'B', why: 'B מתקבלת מהיפוך B⁻¹ (למשל בדירוג [B⁻¹ | I]).' });
+
+    steps.push(reverseQuiz('q-b-meaning',
+      '<b>מה מייצגת המטריצה B?</b>',
+      [
+        { id: 'cols', label: 'עמודות הבעיה המקורית של המשתנים הבסיסיים' },
+        { id: 'inv', label: 'ההופכית של הטבלה האופטימלית' },
+        { id: 'slack', label: 'עמודות משתני הסרק' },
+      ], 'cols',
+      'B בנויה מהעמודות המקוריות של המשתנים הבסיסיים. כאן הבסיס הוא {x1, x2} — כל המשתנים המקוריים — ולכן B היא בדיוק מטריצת האילוצים A!'));
+
+    steps.push(reverseQuiz('q-y-loc',
+      '<b>איפה קוראים את yᵀ (מחירי הצל) בטבלה האופטימלית?</b>',
+      [
+        { id: 'zneg', label: 'בשורת ה-Z מתחת למשתני הסרק, בסימן הפוך' },
+        { id: 'binv', label: 'מתחת למשתני הסרק בשורות האילוצים' },
+        { id: 'rhs', label: 'בעמודת ה-RHS של שורת Z' },
+      ], 'zneg',
+      'מחירי הצל yᵀ = cB·B⁻¹ נמצאים בשורת פונקציית המטרה מתחת למשתני הסרק, בסימן הפוך.'));
+
+    steps.push({ kind: 'quantity', key: 'y', quantityId: 'y', qtype: 'grid',
+      dims: [1, m], correct: [r.y], noRecall: true,
+      label: 'yᵀ', why: 'קריאת ערכי שורת ה-Z שמתחת למשתני הסרק, עם היפוך הסימן.' });
+
+    steps.push({ kind: 'quantity', key: 'cB', quantityId: 'cB', qtype: 'grid',
+      dims: [1, n], correct: [r.c], noRecall: true,
+      label: 'cᵀ', why: 'מכיוון ש-yᵀ = cB·B⁻¹, מתקיים cBᵀ = yᵀ·B. כאן כל המשתנים בסיסיים, אז זה כל וקטור המקדמים c.',
+      scratchPreset: { A: { label: 'yᵀ', values: [r.y] }, B: { label: 'B', values: r.Bmatrix }, resultLabel: 'cᵀ' } });
+
+    steps.push({ kind: 'quantity', key: 'xB', quantityId: 'xB', qtype: 'grid',
+      dims: [m, 1], correct: colVec(r.xB), noRecall: true,
+      label: 'xB', why: 'ערכי המשתנים הבסיסיים בפתרון: xB = B⁻¹·b. אלה משלימים את עמודת ה-RHS בטבלה האופטימלית.',
+      scratchPreset: { A: { label: 'B⁻¹', values: r.Binv }, B: { label: 'b', values: colVec(s.problem.b) }, resultLabel: 'xB' },
+      rowLabels: r.basis });
+
+    steps.push({ kind: 'quantity', key: 'Z', quantityId: 'Z', qtype: 'scalar',
+      dims: null, correct: r.Z, noRecall: true,
+      label: 'Z', why: 'ערך פונקציית המטרה: Z = yᵀ·b (או cB·xB).',
+      scratchPreset: { A: { label: 'yᵀ', values: [r.y] }, B: { label: 'b', values: colVec(s.problem.b) }, resultLabel: 'Z' } });
+
+    return steps;
+  }
+
+  function createReverseSession(problem) {
+    var full = Engine.buildFullProblem(problem);
+    var sim = Generator.simulate(problem, 6);
+    var g = sim.given;
+    var r = {
+      basis: g.B.slice(),                       // ordered basic vars (== [1,2])
+      Binv: g.Binv,
+      Bmatrix: Engine.computeBMatrix(full.AFull, g.B),
+      A: problem.A,
+      y: sim.y,
+      c: problem.c,
+      xB: sim.xB,
+      Z: Engine.computeZ(g.cB, sim.xB),
+      b: problem.b,
+    };
+    var s = {
+      problem: problem,
+      AFull: full.AFull,
+      cFull: full.cFull,
+      mode: 'reverse',
+      examMode: false,
+      phase: 'reverse',
+      status: 'in-progress',
+      iterIndex: -1,
+      reverse: r,
+      canonical: null,
+      iterations: [],
+      stepQueue: [],
+      stepIndex: 0,
+      substage: null,
+      history: [],
+      helpLog: [],
+      autoLog: [],
+      errorLog: [],
+      elapsedMs: 0,
+      finalResult: null,
+    };
+    s.stepQueue = buildReverseSteps(s);
+    s.substage = initialSubstage(s.stepQueue[0]);
+    return s;
+  }
+
+  function submitQuiz(s, id) {
+    var st = getCurrent(s);
+    return settle(s, { ok: id === st.correct });
   }
 
   function createSession(problem, opts) {
@@ -275,6 +398,12 @@
   }
 
   function finishQueue(s) {
+    if (s.mode === 'reverse') {
+      s.status = 'reverse-done';
+      s.phase = 'done';
+      s.finalResult = { reverse: s.reverse };
+      return;
+    }
     if (s.phase === 'setup') {
       startIteration(s, s.setupCanonical);
       return;
@@ -362,6 +491,7 @@
     var st = getCurrent(s);
     var c = s.canonical;
     if (st.kind === 'stepRecall') return st.correctStep;
+    if (st.kind === 'quiz') return st.correct;
     if (st.kind === 'quantity') return st.quantityId;
     if (st.decision === 'stop1') return c.optimal ? 'stop' : 'continue';
     if (st.decision === 'stop2') return c.unbounded ? 'stop' : 'continue';
@@ -434,6 +564,12 @@
     recordHelp(s, level);
     var st = getCurrent(s);
     if (!st) return '';
+    if (st.kind === 'quiz') return st.why || st.question;
+    if (s.mode === 'reverse' && st.kind === 'quantity' && st.why) {
+      // reverse steps carry their own explanation (reading a tableau, not the
+      // forward-mode formula) — prefer it over the generic Q_HINTS.
+      return st.why;
+    }
     if (st.kind === 'stepRecall') {
       if (level === 1) return 'חשוב: מה בדיוק סיימנו הרגע, ומה ההמשך הטבעי לפי מחזור האלגוריתם?';
       return 'סדר האלגוריתם: ' + COURSE_STEPS.map(function (cs) { return cs.label; }).join('  ←  ');
@@ -478,7 +614,7 @@
   function revealCurrent(s) {
     recordHelp(s, 3);
     var st = getCurrent(s);
-    if (st.kind === 'stepRecall' || st.kind === 'decision') {
+    if (st.kind === 'stepRecall' || st.kind === 'decision' || st.kind === 'quiz') {
       return { type: 'choice', value: getCorrectChoice(s) };
     }
     if (s.substage === 'recall') return { type: 'choice', value: st.quantityId };
@@ -517,6 +653,8 @@
   function getWhyForCurrent(s) {
     var st = getCurrent(s);
     if (!st) return '';
+    if (st.kind === 'quiz') return st.why || '';
+    if (s.mode === 'reverse' && st.why) return st.why;
     var c = s.canonical;
     if (st.kind === 'stepRecall') return STEP_WHY[st.correctStep] || '';
     if (st.kind === 'decision') {
@@ -642,8 +780,10 @@
     COURSE_STEPS: COURSE_STEPS,
     QUANTITIES: QUANTITIES,
     createSession: createSession,
+    createReverseSession: createReverseSession,
     getCurrent: getCurrent,
     submitStepRecall: submitStepRecall,
+    submitQuiz: submitQuiz,
     submitQuantityRecall: submitQuantityRecall,
     submitDims: submitDims,
     submitScalar: submitScalar,

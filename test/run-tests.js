@@ -435,6 +435,53 @@ check('generator: wantUnbounded returns unbounded', pu && Generator.simulate(pu,
     revived.examMode === true && revived.errorLog.length === 1 && 'elapsedMs' in revived);
 })();
 
+/* Reverse drill: drive the full state machine with canonical answers and
+ * check the reconstructed identities. */
+(function () {
+  var rp = Generator.generateReverseProblem({ seed: 104729 });
+  check('reverse-walk: problem generated', !!rp);
+  if (!rp) return;
+  var s = Session.createReverseSession(rp);
+  check('reverse-walk: mode reverse', s.mode === 'reverse');
+  var guard = 0;
+  while (s.status === 'in-progress' && guard++ < 100) {
+    var st = Session.getCurrent(s);
+    var res;
+    if (st.kind === 'quiz') {
+      // wrong choice first, then right
+      var wrongId = st.options.filter(function (o) { return o.id !== st.correct; })[0].id;
+      var bad = Session.submitQuiz(s, wrongId);
+      check('reverse-walk: wrong quiz rejected', bad.ok === false);
+      res = Session.submitQuiz(s, st.correct);
+      check('reverse-walk: quiz ' + st.key, res.ok);
+    } else if (s.substage === 'dims') {
+      res = Session.submitDims(s, st.qtype === 'indexList'
+        ? { size: st.correct.length } : { rows: st.dims[0], cols: st.dims[1] });
+      check('reverse-walk: dims ' + st.key, res.ok);
+    } else if (st.qtype === 'scalar') {
+      res = Session.submitScalar(s, Parse.formatNumber(st.correct));
+      check('reverse-walk: scalar ' + st.key, res.ok);
+    } else if (st.qtype === 'grid') {
+      res = Session.submitGrid(s, st.correct.map(function (r) { return r.map(Parse.formatNumber); }));
+      check('reverse-walk: grid ' + st.key, res.ok);
+    } else {
+      check('reverse-walk: unexpected step ' + st.key, false);
+      break;
+    }
+  }
+  check('reverse-walk: completed', s.status === 'reverse-done' && guard < 100, s.status);
+  // errors recorded (one per quiz wrong answer, 5 quizzes... actually there are 3 quizzes)
+  check('reverse-walk: errors tracked', s.errorLog.length >= 1);
+  var r = s.reverse;
+  check('reverse-walk: A === B matrix', JSON.stringify(r.A) === JSON.stringify(r.Bmatrix));
+  var yB = Engine.matMul([r.y], r.Bmatrix)[0];
+  check('reverse-walk: c === yᵀB', eqVec(yB, r.c), show(yB) + ' vs ' + show(r.c));
+  var bbi = Engine.matMul(r.Bmatrix, r.Binv);
+  check('reverse-walk: B·B⁻¹ = I', eqMat(bbi, [[1, 0], [0, 1]]), show(bbi));
+  var yb = r.y[0] * r.b[0] + r.y[1] * r.b[1];
+  check('reverse-walk: Z = yᵀb', eqNum(yb, r.Z));
+})();
+
 /* ---------- summary ---------- */
 
 console.log('');

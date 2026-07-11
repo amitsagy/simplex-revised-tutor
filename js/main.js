@@ -14,17 +14,24 @@
     window.Simplex.currentSession = null;
     tutorView.hidden = true;
     setupView.hidden = false;
-    window.Simplex.problemSetupUI.init(setupView, startProblem);
+    window.Simplex.problemSetupUI.init(setupView, startProblem, startReverse);
     window.scrollTo(0, 0);
   }
 
-  function startProblem(problem, opts) {
-    var session = window.Simplex.session.createSession(problem, opts);
+  function launch(session) {
     window.Simplex.currentSession = session; // for the ask-Claude sidebar
     setupView.hidden = true;
     tutorView.hidden = false;
     window.Simplex.wizardUI.init(session, tutorView, showSetup);
     window.scrollTo(0, 0);
+  }
+
+  function startProblem(problem, opts) {
+    launch(window.Simplex.session.createSession(problem, opts));
+  }
+
+  function startReverse(problem) {
+    launch(window.Simplex.session.createReverseSession(problem));
   }
 
   function resume(saved) {
