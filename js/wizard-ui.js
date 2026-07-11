@@ -34,16 +34,18 @@
 
   var KEY_DISPLAY = {
     'recall-setup': 'זיהוי השלב הראשון',
-    'recall-step2': 'זיהוי שלב 2', 'recall-step3': 'זיהוי שלב 3',
-    'recall-step4': 'זיהוי שלב 4', 'recall-step5': 'זיהוי שלב 5',
+    'recall-step2': 'זיהוי השלב (xB ו-Z)', 'recall-step3': 'זיהוי השלב (yᵀ ו-rN)',
+    'recall-step4': 'זיהוי השלב (n̄q ומבחן יחס)', 'recall-step5': 'זיהוי השלב (עדכון B)',
     stop1: 'החלטת אופטימליות', entering: 'בחירת משתנה נכנס',
     stop2: 'בדיקת חסימות', leaving: 'בחירת משתנה יוצא (מבחן יחס)',
   };
 
+  /* No step numbers here either — these badges are visible while the next
+   * "what's the next step?" question is open, and a number would leak it. */
   var STEP_SHORT = {
-    step1: 'שלב 1 — בסיס התחלתי', step2: 'שלב 2 — xB ו-Z',
-    step3: 'שלב 3 — yᵀ ו-rN', step4: 'שלב 4 — n̄q ומבחן יחס',
-    step5: 'שלב 5 — עדכון B ו-B⁻¹',
+    step1: 'בסיס התחלתי', step2: 'xB ו-Z',
+    step3: 'yᵀ ו-rN', step4: 'n̄q ומבחן יחס',
+    step5: 'עדכון B ו-B⁻¹',
   };
 
   /* ---------- small helpers ---------- */
