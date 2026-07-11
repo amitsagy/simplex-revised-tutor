@@ -204,7 +204,7 @@
       return RR.nextRrefOp(cur, t.cols);
     }
 
-    if (opts.autoTarget) {
+    if (opts.autoTarget && !opts.examMode) {
       autoControls.appendChild(button('צעד אוטומטי ▶', function () {
         var op = nextAutoOp();
         if (!op) { msg.textContent = 'סיימנו — אין עוד צעדים לביצוע.'; return; }
@@ -223,7 +223,7 @@
     }
 
     if (opts.mode === 'embedded') {
-      autoControls.appendChild(button('בדוק מול B⁻¹ הנכון', function () {
+      if (!opts.examMode) autoControls.appendChild(button('בדוק מול B⁻¹ הנכון', function () {
         var cur = current();
         var mCols = opts.correctLeft[0].length;
         var allOk = true;

@@ -147,13 +147,15 @@
       markGrid(gridP, res);
       msg.textContent = res.ok ? 'הכפל נכון!' : 'יש תאים שגויים במכפלה (שורה של A כפול עמודה של B, איבר-איבר).';
     }));
-    prodBtns.appendChild(btn('חשב עבורי', 'btn', function () {
-      var correct = computedProduct();
-      if (!correct) return;
-      gridP.setStrings(fmtGrid(correct));
-      gridP.clearStatuses();
-      msg.textContent = 'המכפלה חושבה מהערכים שבמטריצות המקור.';
-    }));
+    if (!opts.examMode) {
+      prodBtns.appendChild(btn('חשב עבורי', 'btn', function () {
+        var correct = computedProduct();
+        if (!correct) return;
+        gridP.setStrings(fmtGrid(correct));
+        gridP.clearStatuses();
+        msg.textContent = 'המכפלה חושבה מהערכים שבמטריצות המקור.';
+      }));
+    }
 
     /* --- subtraction stage (rN) --- */
     var gridD = null;
@@ -201,13 +203,15 @@
         msg.textContent = res.ok ? 'החיסור נכון!' : 'יש תאים שגויים — לכל עמודה: ' +
           opts.D.label + ' פחות איבר המכפלה המתאים.';
       }));
-      diffBtns.appendChild(btn('חשב עבורי', 'btn', function () {
-        var correct = computedDiff();
-        if (!correct) return;
-        gridR.setStrings(fmtGrid(correct));
-        gridR.clearStatuses();
-        msg.textContent = 'החיסור חושב מהערכים שהוזנו.';
-      }));
+      if (!opts.examMode) {
+        diffBtns.appendChild(btn('חשב עבורי', 'btn', function () {
+          var correct = computedDiff();
+          if (!correct) return;
+          gridR.setStrings(fmtGrid(correct));
+          gridR.clearStatuses();
+          msg.textContent = 'החיסור חושב מהערכים שהוזנו.';
+        }));
+      }
     }
 
     var msg = el('p', 'rr-msg');

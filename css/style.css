@@ -251,6 +251,34 @@ select {
 }
 .tl-pos { font-weight: 700; color: var(--accent-dark); }
 .tl-note { color: var(--muted); font-size: 0.8rem; margin-inline-start: auto; }
+.exam-chip {
+  font-weight: 700;
+  border-radius: 20px;
+  padding: 3px 12px;
+  font-size: 0.9rem;
+}
+.exam-chip.timer { background: var(--accent-soft); color: var(--accent-dark); }
+.exam-chip.errors { background: var(--bad-bg); color: var(--bad); }
+.exam-note { color: var(--bad); font-weight: 600; }
+
+.exam-toggle-row {
+  background: var(--reveal-bg);
+  border-radius: 10px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.exam-toggle-row input { width: 18px; height: 18px; }
+
+.exam-summary { margin-top: 16px; border-top: 1px dashed var(--line); padding-top: 12px; }
+.exam-score { font-size: 1.6rem; font-weight: 800; margin: 4px 0; }
+.exam-score.score-good { color: var(--ok); }
+.exam-score.score-mid { color: var(--reveal); }
+.exam-score.score-low { color: var(--bad); }
+.exam-stats { font-size: 1.05rem; color: var(--accent-dark); }
+.exam-formula { color: var(--muted); font-size: 0.85rem; }
+.exam-weak-title { font-weight: 700; margin-top: 8px; }
 
 /* ---------- workspace ---------- */
 

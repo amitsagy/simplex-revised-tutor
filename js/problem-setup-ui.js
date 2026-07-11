@@ -52,6 +52,18 @@
     buildBtn.textContent = 'בנה טבלאות מקדמים';
     sizeRow.appendChild(buildBtn);
 
+    var examRow = document.createElement('p');
+    examRow.className = 'exam-toggle-row';
+    var examChk = document.createElement('input');
+    examChk.type = 'checkbox';
+    examChk.id = 'exam-toggle';
+    var examLbl = document.createElement('label');
+    examLbl.htmlFor = 'exam-toggle';
+    examLbl.innerHTML = ' 📝 <b>מצב מבחן</b> — בלי רמזים ובלי "חשב עבורי", עם שעון וציון בסוף';
+    examRow.appendChild(examChk);
+    examRow.appendChild(examLbl);
+    card.appendChild(examRow);
+
     var randomRow = document.createElement('p');
     var randomBtn = document.createElement('button');
     randomBtn.type = 'button';
@@ -146,7 +158,7 @@
           err.textContent = 'כל רכיבי b חייבים להיות אי-שליליים (זה מה שמבטיח שבסיס הסרק ההתחלתי ישים).';
           return;
         }
-        onStart({ n: n, m: m, c: c, A: A, b: b });
+        onStart({ n: n, m: m, c: c, A: A, b: b }, { examMode: examChk.checked });
       });
       gridsBox.appendChild(startBtn);
     }

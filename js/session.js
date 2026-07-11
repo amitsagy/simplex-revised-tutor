@@ -198,12 +198,15 @@
     return 'choose';
   }
 
-  function createSession(problem) {
+  function createSession(problem, opts) {
+    opts = opts || {};
     var full = Engine.buildFullProblem(problem);
     var s = {
       problem: problem,
       AFull: full.AFull,
       cFull: full.cFull,
+      mode: 'forward',           // 'forward' | 'reverse'
+      examMode: !!opts.examMode,
       phase: 'setup',            // 'setup' | 'iter' | 'done'
       status: 'in-progress',     // 'in-progress' | 'optimal' | 'unbounded'
       iterIndex: -1,             // 0-based; -1 during setup
@@ -216,11 +219,19 @@
       history: [],               // {iter, Z, entering, leaving}
       helpLog: [],               // {phase, iter, key, substage, level}
       autoLog: [],               // auto-computed algebra (NOT counted as help)
+      errorLog: [],              // {phase, iter, key} — one per wrong submission
+      elapsedMs: 0,              // accumulated across resumes (exam mode)
       finalResult: null,
     };
     s.stepQueue = buildSetupSteps(s);
     s.substage = initialSubstage(s.stepQueue[0]);
     return s;
+  }
+
+  /** Record a wrong submission (drives the exam-mode error report). */
+  function recordError(s) {
+    var st = getCurrent(s);
+    s.errorLog.push({ phase: s.phase, iter: s.iterIndex, key: st ? st.key : '?' });
   }
 
   function getCurrent(s) {
@@ -301,67 +312,50 @@
 
   /* ---- submissions (each advances the session on success) ---- */
 
+  function settle(s, res) {
+    if (res.ok) advance(s);
+    else recordError(s);
+    return res;
+  }
+
   function submitStepRecall(s, stepId) {
     var st = getCurrent(s);
-    var ok = stepId === st.correctStep;
-    if (ok) advance(s);
-    return { ok: ok };
+    return settle(s, { ok: stepId === st.correctStep });
   }
 
   function submitQuantityRecall(s, quantityId) {
     var st = getCurrent(s);
-    var ok = quantityId === st.quantityId;
-    if (ok) advance(s);
-    return { ok: ok };
+    return settle(s, { ok: quantityId === st.quantityId });
   }
 
   /** dims: {size} for indexList, {rows, cols} for grid/columnPick. */
   function submitDims(s, dims) {
     var st = getCurrent(s);
-    var ok;
-    if (st.qtype === 'indexList') {
-      ok = dims.size === st.correct.length;
-    } else {
-      ok = dims.rows === st.dims[0] && dims.cols === st.dims[1];
-    }
-    if (ok) advance(s);
-    return { ok: ok };
+    var ok = st.qtype === 'indexList'
+      ? dims.size === st.correct.length
+      : dims.rows === st.dims[0] && dims.cols === st.dims[1];
+    return settle(s, { ok: ok });
   }
 
   function submitScalar(s, str) {
-    var st = getCurrent(s);
-    var res = Check.checkScalar(str, st.correct);
-    if (res.ok) advance(s);
-    return res;
+    return settle(s, Check.checkScalar(str, getCurrent(s).correct));
   }
 
   function submitGrid(s, strs) {
-    var st = getCurrent(s);
-    var res = Check.checkGrid(strs, st.correct);
-    if (res.ok) advance(s);
-    return res;
+    return settle(s, Check.checkGrid(strs, getCurrent(s).correct));
   }
 
   function submitIndexList(s, values) {
-    var st = getCurrent(s);
-    var res = Check.checkIndexList(values, st.correct);
-    if (res.ok) advance(s);
-    return res;
+    return settle(s, Check.checkIndexList(values, getCurrent(s).correct));
   }
 
   function submitColumnPick(s, picked) {
-    var st = getCurrent(s);
-    var res = Check.checkIndexList(picked, st.correct);
-    if (res.ok) advance(s);
-    return res;
+    return settle(s, Check.checkIndexList(picked, getCurrent(s).correct));
   }
 
   /** Ratio-test vector: numbers, with "-" for rows where nBarQ_i <= 0. */
   function submitRatios(s, strs) {
-    var st = getCurrent(s);
-    var res = Check.checkRatioVec(strs, st.correct);
-    if (res.ok) advance(s);
-    return res;
+    return settle(s, Check.checkRatioVec(strs, getCurrent(s).correct));
   }
 
   function getCorrectChoice(s) {
@@ -398,6 +392,7 @@
       }
     }
     if (ok) advance(s);
+    else recordError(s);
     return { ok: ok, note: note };
   }
 
@@ -616,6 +611,33 @@
     return Object.keys(byKey).map(function (k) { return byKey[k]; });
   }
 
+  /** Exam-mode report: total errors, and the steps with the most errors. */
+  function examSummary(s) {
+    var byKey = {};
+    s.errorLog.forEach(function (e) {
+      var where = e.phase === 'setup' ? 'הקמה' : 'איטרציה ' + (e.iter + 1);
+      var label = keyDisplayName(e.key);
+      var k = where + '|' + label;
+      byKey[k] = byKey[k] || { where: where, label: label, count: 0 };
+      byKey[k].count++;
+    });
+    var rows = Object.keys(byKey).map(function (k) { return byKey[k]; });
+    rows.sort(function (a, b) { return b.count - a.count; });
+    var score = Math.max(0, 100 - 3 * s.errorLog.length);
+    return { totalErrors: s.errorLog.length, byStep: rows, score: score };
+  }
+
+  /* Human label for an errorLog key (reuses the quantity labels + decisions). */
+  function keyDisplayName(key) {
+    var DEC = {
+      stop1: 'החלטת אופטימליות', entering: 'בחירת משתנה נכנס',
+      stop2: 'בדיקת חסימות', leaving: 'מבחן יחס',
+    };
+    if (DEC[key]) return DEC[key];
+    if (String(key).indexOf('recall') === 0) return 'זיהוי השלב';
+    return quantityLabel(key);
+  }
+
   var api = {
     COURSE_STEPS: COURSE_STEPS,
     QUANTITIES: QUANTITIES,
@@ -636,9 +658,11 @@
     describeSession: describeSession,
     recordHelp: recordHelp,
     recordAuto: recordAuto,
+    recordError: recordError,
     autoSummary: autoSummary,
     revealCurrent: revealCurrent,
     helpSummary: helpSummary,
+    examSummary: examSummary,
     quantityLabel: quantityLabel,
   };
 

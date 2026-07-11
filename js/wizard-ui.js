@@ -25,6 +25,18 @@
   var lastSnapshot = null;
   var restoring = false;
 
+  /* exam-mode timer: elapsedMs accumulates across steps and survives refresh;
+   * examLastResume is a wall-clock anchor kept OFF the serialized session. */
+  var examLastResume = 0;
+  var examTicker = null;
+
+  function fmtClock(ms) {
+    var s = Math.floor(ms / 1000);
+    var mm = Math.floor(s / 60);
+    var ss = s % 60;
+    return mm + ':' + (ss < 10 ? '0' : '') + ss;
+  }
+
   var SHORT_LABELS = {
     Blist: 'B', Bmatrix: 'B (מטריצה)', Binv: 'B⁻¹', cB: 'cB',
     Nlist: 'N', Nmatrix: 'N (מטריצה)', cN: 'cN',
@@ -130,6 +142,14 @@
     els.history = rootEl.querySelector('#history');
     els.workspace = rootEl.querySelector('#workspace');
     els.prompt = rootEl.querySelector('#prompt-card');
+    examLastResume = Date.now();
+    if (examTicker) { clearInterval(examTicker); examTicker = null; }
+    if (session.examMode) {
+      examTicker = setInterval(function () {
+        var chip = els.timeline && els.timeline.querySelector('.exam-timer-val');
+        if (chip) chip.textContent = fmtClock(session.elapsedMs + (Date.now() - examLastResume));
+      }, 1000);
+    }
     renderProblemRef();
     renderAll();
   }
@@ -178,12 +198,24 @@
     bar.appendChild(back);
     bar.appendChild(el('span', 'tl-pos', pos + ' · צעד ' + (timeline.past.length + 1)));
     bar.appendChild(fwd);
-    bar.appendChild(el('span', 'tl-note', '💾 נשמר אוטומטית — רענון לא מוחק כלום'));
+    if (session.examMode) {
+      bar.appendChild(el('span', 'exam-chip timer',
+        '⏱️ <span class="exam-timer-val">' + fmtClock(session.elapsedMs) + '</span>'));
+      bar.appendChild(el('span', 'exam-chip errors', '❌ שגיאות: ' + session.errorLog.length));
+      bar.appendChild(el('span', 'tl-note exam-note', '📝 מצב מבחן — בלי רמזים'));
+    } else {
+      bar.appendChild(el('span', 'tl-note', '💾 נשמר אוטומטית — רענון לא מוחק כלום'));
+    }
     els.timeline.appendChild(bar);
   }
 
   function renderAll() {
     hintLevel = 0;
+    // fold wall-clock time since the last render into the persisted total
+    if (session.examMode && !restoring) {
+      session.elapsedMs += Date.now() - examLastResume;
+    }
+    examLastResume = Date.now();
     var snap = JSON.stringify(session);
     if (!restoring && lastSnapshot !== null && snap !== lastSnapshot) {
       timeline.past.push(lastSnapshot);   // we advanced — the old prompt joins the past
@@ -378,7 +410,7 @@
     else if (sub === 'dims') applyReveal = renderDims(card, st);
     else applyReveal = renderFill(card, st);
 
-    card.appendChild(hintStrip(applyReveal));
+    if (!session.examMode) card.appendChild(hintStrip(applyReveal));
     els.prompt.appendChild(card);
   }
 
@@ -407,7 +439,7 @@
     var box = el('div', 'success-box', '<span class="ok-mark">✓ נכון!</span>' +
       (note ? '<div class="note">' + note + '</div>' : ''));
     var whyBox = null;
-    if (why) {
+    if (why && !session.examMode) {
       whyBox = el('div', 'why-box', why);
       whyBox.hidden = true;
       var whyBtn = btn('למה?', 'btn why-btn', function () {
@@ -655,10 +687,12 @@
             mode: 'embedded',
             autoTarget: { kind: 'pivot', row: c.pivotRow, col: g.Binv.length },
             correctLeft: st.correct,
+            examMode: session.examMode,
             onAccept: useStrings,
           });
         } else {
           multPreset.onUseResult = useStrings;
+          multPreset.examMode = session.examMode;
           calcPanel = MS.create(calcBox, multPreset);
         }
       });
@@ -685,7 +719,7 @@
       onEnter: doCheck,
     });
     gridBox.appendChild(btn('בדוק', 'btn primary', doCheck));
-    if (st.quantityId === 'Binv') {
+    if (st.quantityId === 'Binv' && !session.examMode) {
       // Pure algebra — a one-click final answer that is NOT counted as help.
       gridBox.appendChild(btn('⚡ חשב עבורי (דירוג אוטומטי)', 'btn auto-btn', function () {
         grid.setStrings(st.correct.map(function (row) { return row.map(fmt); }));
@@ -749,6 +783,7 @@
             scratchBox.hidden = true;
             doCheck();
           };
+          multPreset.examMode = session.examMode;
           scratchPanel = MS.create(scratchBox, multPreset);
         }
       }));
@@ -912,6 +947,34 @@
   /* ---------- final screen ---------- */
 
   function renderFinal() {
+    if (examTicker) { clearInterval(examTicker); examTicker = null; }
+    renderFinalBody();
+  }
+
+  function renderExamSummary(card) {
+    var ex = Session.examSummary(session);
+    var box = el('div', 'exam-summary');
+    box.appendChild(el('h3', null, '📝 סיכום מבחן'));
+    var scoreCls = ex.score >= 90 ? 'score-good' : ex.score >= 70 ? 'score-mid' : 'score-low';
+    box.appendChild(el('p', 'exam-score ' + scoreCls, 'ציון: ' + ex.score + ' / 100'));
+    box.appendChild(el('p', 'exam-stats ltr-math',
+      '⏱️ ' + fmtClock(session.elapsedMs) + ' · ❌ ' + ex.totalErrors + ' שגיאות'));
+    box.appendChild(el('p', 'exam-formula', 'הציון: max(0, 100 − 3 × מספר השגיאות).'));
+    if (ex.byStep.length) {
+      box.appendChild(el('p', 'exam-weak-title', 'השלבים עם הכי הרבה טעויות:'));
+      var ul = el('ul');
+      ex.byStep.slice(0, 3).forEach(function (r) {
+        ul.appendChild(el('li', null, r.where + ' · ' + r.label + ' — ' + r.count + ' טעויות'));
+      });
+      box.appendChild(ul);
+      box.appendChild(el('p', 'help-tip', 'אלה הנושאים לחזור עליהם לפני המבחן האמיתי.'));
+    } else {
+      box.appendChild(el('p', 'no-help', 'אפס טעויות — מושלם! 🏆'));
+    }
+    card.appendChild(box);
+  }
+
+  function renderFinalBody() {
     var card = el('div', 'card final');
     var p = session.problem;
     var f = session.finalResult;
@@ -954,6 +1017,13 @@
       card.appendChild(el('div', null, matrixHTML(colVec(f.nBarQ), {
         label: 'n̄q', rowLabels: varLabels(f.B),
       })));
+    }
+
+    if (session.examMode) {
+      renderExamSummary(card);
+      card.appendChild(btn('תרגיל חדש', 'btn primary big', function () { onNewProblemCb(); }));
+      els.prompt.appendChild(card);
+      return;
     }
 
     var hs = Session.helpSummary(session);

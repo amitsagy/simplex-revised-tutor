@@ -412,6 +412,29 @@ check('generator: wantUnbounded returns unbounded', pu && Generator.simulate(pu,
   check('round-trip: revived Z* correct', revived.finalResult && eqNum(revived.finalResult.Z, 36));
 })();
 
+/* Exam mode: wrong submissions grow errorLog (not helpLog); scoring works;
+ * new fields survive a JSON round-trip. */
+(function () {
+  var s = Session.createSession(wyndor.problem, { examMode: true });
+  check('exam: session flagged', s.examMode === true && s.errorLog.length === 0);
+  // first step is stepRecall; submit a wrong step -> error, no advance
+  var idxBefore = s.stepIndex;
+  var r = Session.submitStepRecall(s, 'step5');
+  check('exam: wrong step rejected', r.ok === false && s.stepIndex === idxBefore);
+  check('exam: error logged', s.errorLog.length === 1 && s.helpLog.length === 0);
+  // correct it
+  Session.submitStepRecall(s, 'step1');
+  check('exam: correct advances', s.stepIndex === idxBefore + 1);
+  // score reflects the one error
+  var ex = Session.examSummary(s);
+  check('exam: score = 100 - 3*errors', ex.score === 97 && ex.totalErrors === 1, JSON.stringify(ex));
+  check('exam: byStep has an entry', ex.byStep.length === 1 && ex.byStep[0].count === 1);
+  // round-trip preserves errorLog + examMode + elapsedMs
+  var revived = JSON.parse(JSON.stringify(s));
+  check('exam: round-trip preserves fields',
+    revived.examMode === true && revived.errorLog.length === 1 && 'elapsedMs' in revived);
+})();
+
 /* ---------- summary ---------- */
 
 console.log('');

@@ -18,8 +18,8 @@
     window.scrollTo(0, 0);
   }
 
-  function startProblem(problem) {
-    var session = window.Simplex.session.createSession(problem);
+  function startProblem(problem, opts) {
+    var session = window.Simplex.session.createSession(problem, opts);
     window.Simplex.currentSession = session; // for the ask-Claude sidebar
     setupView.hidden = true;
     tutorView.hidden = false;
