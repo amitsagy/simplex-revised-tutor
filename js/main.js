@@ -50,6 +50,6 @@
   } else {
     tutorView.hidden = true;
     setupView.hidden = false;
-    window.Simplex.problemSetupUI.init(setupView, startProblem);
+    window.Simplex.problemSetupUI.init(setupView, startProblem, startReverse);
   }
 })();
