@@ -190,6 +190,9 @@ function replayFixture(fx) {
           String(fin.assignments[v]));
       });
       check(tag + 'alternate optima flag', fin.hasAlternateOptima === fx.final.hasAlternateOptima);
+      if (fx.final.shadowPrices) {
+        check(tag + 'shadow prices', eqVec(fin.shadowPrices, fx.final.shadowPrices), show(fin.shadowPrices));
+      }
       return;
     }
     var ent = Engine.decideEntering(rN, given.N);

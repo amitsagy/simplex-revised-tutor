@@ -44,5 +44,6 @@ module.exports = {
     Z: 36,
     assignments: { 1: 2, 2: 6, 3: 2, 4: 0, 5: 0 },
     hasAlternateOptima: false,
+    shadowPrices: [0, 1.5, 1], // y^T at the optimum (handout p.20)
   },
 };

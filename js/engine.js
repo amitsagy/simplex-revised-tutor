@@ -215,12 +215,16 @@
     for (var v = 1; v <= total; v++) assignments[v] = 0;
     given.B.forEach(function (bi, i) { assignments[bi] = xB[i]; });
     var alternate = rN.some(function (r) { return Math.abs(r) <= 1e-7; });
+    // Shadow prices y^T = cB^T · B^-1 — the marginal value of each constraint's
+    // resource at the optimum (course summary, item 3).
+    var shadowPrices = computeY(given.cB, given.Binv);
     return {
       Z: computeZ(given.cB, xB),
       assignments: assignments,
       B: given.B.slice(),
       N: given.N.slice(),
       hasAlternateOptima: alternate,
+      shadowPrices: shadowPrices,
     };
   }
 

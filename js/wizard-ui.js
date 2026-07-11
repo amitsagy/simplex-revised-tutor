@@ -933,6 +933,19 @@
       }
       card.appendChild(el('table', 'result-table',
         '<tr><th>משתנה</th><th>ערך</th><th>מעמד</th></tr>' + rows));
+
+      if (f.shadowPrices) {
+        var spBox = el('div', 'shadow-box');
+        spBox.appendChild(el('div', null, matrixHTML([f.shadowPrices], {
+          label: 'yᵀ — מחירי הצל',
+          colLabels: f.shadowPrices.map(function (_, i) { return 'אילוץ ' + (i + 1); }),
+        })));
+        spBox.appendChild(el('p', 'shadow-note',
+          'מחיר הצל <span class="ltr-math">yᵢ</span> הוא התוספת ל-<span class="ltr-math">Z</span> ' +
+          'מיחידת משאב אחת נוספת באילוץ <span class="ltr-math">i</span> — כל עוד הבסיס האופטימלי לא משתנה. ' +
+          '(נמצא בטבלה האחרונה מתחת למשתני הסרק בשורת Z, בסימן הפוך.)'));
+        card.appendChild(spBox);
+      }
     } else {
       card.appendChild(el('h2', null, 'הבעיה אינה חסומה'));
       card.appendChild(el('p', null,
