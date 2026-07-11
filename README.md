@@ -63,6 +63,18 @@ B ריבועית, עובדים על [B | I] (ידנית/פיבוט-בלחיצה/
 שמחזיק מפתח אחד של בעל האתר עם מכסת שימוש (אותה תבנית כמו ה-proxy של
 פרויקט TOS Trap Finder) — לא נדרש היום.
 
+**פרסום לאינטרנט כשמחליטים** (המאגר המקומי כבר מוכן, gh כבר מחובר):
+
+```
+cd ~/simplex-revised-tutor
+gh repo create simplex-revised-tutor --public --source=. --remote=origin --push
+gh api -X POST repos/{owner}/simplex-revised-tutor/pages -f "source[branch]=main" -f "source[path]=/"
+```
+
+הכתובת תהיה `https://<שם-המשתמש>.github.io/simplex-revised-tutor/`.
+שים לב: מאגר ציבורי = גם הקוד גלוי (אין בו סודות; מפתח ה-API נשמר רק
+בדפדפן). ההתקדמות נשמרת מקומית בכל מכשיר בנפרד.
+
 ## היקף (גרסה 1)
 
 בעיות `Max Z = cᵀx` עם אילוצי `≤` בלבד ו-`b ≥ 0` — בדיוק המסגרת של תרגול 8
