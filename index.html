@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מאמן Revised Simplex</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>🎓 מאמן <span class="ltr-math">Revised Simplex</span></h1>
+  <nav>
+    <a class="btn" href="calculator.html">מחשבון דירוג מטריצות</a>
+    <button type="button" class="btn" id="new-problem">תרגיל חדש</button>
+  </nav>
+</header>
+<main id="app">
+  <section id="setup-view"></section>
+  <section id="tutor-view" hidden>
+    <div id="problem-ref" class="card ref-card"></div>
+    <div id="timeline-bar"></div>
+    <div id="history"></div>
+    <div id="workspace"></div>
+    <div id="prompt-card"></div>
+  </section>
+</main>
+<footer class="foot">אתה מוביל את הפתרון — המערכת רק בודקת, מרמזת ומתקנת. סדר הפעולות הוא החומר.</footer>
+<script src="js/parse.js"></script>
+<script src="js/store.js"></script>
+<script src="js/answer-check.js"></script>
+<script src="js/row-reduce.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/session.js"></script>
+<script src="js/matrix-input.js"></script>
+<script src="js/column-picker.js"></script>
+<script src="js/step-recall.js"></script>
+<script src="js/row-reduce-ui.js"></script>
+<script src="js/mult-scratch.js"></script>
+<script src="js/problem-setup-ui.js"></script>
+<script src="js/wizard-ui.js"></script>
+<script src="js/main.js"></script>
+<script src="js/ask-sidebar.js"></script>
+</body>
+</html>

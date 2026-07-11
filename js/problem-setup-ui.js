@@ -1,0 +1,157 @@
+/* Simplex Tutor — problem-setup-ui.js
+ * "New exercise" form: n, m, then coefficient grids for c, A, b.
+ * MVP scope: Max, <= constraints only, b >= 0 (rejected inline otherwise).
+ */
+(function () {
+  'use strict';
+
+  var Parse = window.Simplex.parse;
+  var MI = window.Simplex.matrixInput;
+
+  var EXAMPLES = [
+    {
+      name: 'דוגמת הכיתה (תרגיל 1 בתרגול)',
+      problem: { n: 2, m: 3, c: [3, 5], A: [[1, 0], [0, 2], [3, 2]], b: [4, 12, 18] },
+    },
+    {
+      name: 'תרגיל בית 1א׳ (לא חסום)',
+      problem: { n: 3, m: 2, c: [10, -16, 1], A: [[1, -3, 1], [1, -1, -1]], b: [2, 4] },
+    },
+  ];
+
+  function init(container, onStart) {
+    container.innerHTML = '';
+
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<h2>תרגיל חדש</h2>' +
+      '<p>הזן בעיית מקסימום בצורה: <span class="ltr-math">Max Z = cᵀx , Ax ≤ b , x ≥ 0</span> (כל רכיבי b אי-שליליים).</p>';
+    container.appendChild(card);
+
+    var sizeRow = document.createElement('div');
+    sizeRow.className = 'size-row';
+    sizeRow.innerHTML =
+      '<label>מספר משתנים (n): <select id="setup-n"></select></label> ' +
+      '<label>מספר אילוצים (m): <select id="setup-m"></select></label> ';
+    card.appendChild(sizeRow);
+
+    var nSel = sizeRow.querySelector('#setup-n');
+    var mSel = sizeRow.querySelector('#setup-m');
+    for (var i = 1; i <= 5; i++) {
+      nSel.appendChild(new Option(String(i), String(i)));
+      mSel.appendChild(new Option(String(i), String(i)));
+    }
+    nSel.value = '2';
+    mSel.value = '3';
+
+    var buildBtn = document.createElement('button');
+    buildBtn.type = 'button';
+    buildBtn.className = 'btn primary';
+    buildBtn.textContent = 'בנה טבלאות מקדמים';
+    sizeRow.appendChild(buildBtn);
+
+    var exampleRow = document.createElement('p');
+    exampleRow.appendChild(document.createTextNode('או טען דוגמה מחומרי הקורס: '));
+    EXAMPLES.forEach(function (ex) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn';
+      b.textContent = ex.name;
+      b.addEventListener('click', function () {
+        nSel.value = String(ex.problem.n);
+        mSel.value = String(ex.problem.m);
+        buildGrids(ex.problem);
+      });
+      exampleRow.appendChild(b);
+    });
+    card.appendChild(exampleRow);
+
+    var gridsBox = document.createElement('div');
+    card.appendChild(gridsBox);
+
+    buildBtn.addEventListener('click', function () { buildGrids(null); });
+
+    function varLabels(n) {
+      var out = [];
+      for (var v = 1; v <= n; v++) out.push('x<sub>' + v + '</sub>');
+      return out;
+    }
+
+    function toStrings(nums) {
+      return nums.map(function (row) { return row.map(Parse.formatNumber); });
+    }
+
+    function buildGrids(prefill) {
+      var n = parseInt(nSel.value, 10);
+      var m = parseInt(mSel.value, 10);
+      gridsBox.innerHTML = '';
+
+      var cBox = section(gridsBox, 'מקדמי פונקציית המטרה c:');
+      var cGrid = MI.create(cBox, {
+        rows: 1, cols: n, colLabels: varLabels(n),
+        values: prefill ? toStrings([prefill.c]) : null,
+      });
+
+      var aBox = section(gridsBox, 'מקדמי האילוצים A:');
+      var aGrid = MI.create(aBox, {
+        rows: m, cols: n, colLabels: varLabels(n),
+        values: prefill ? toStrings(prefill.A) : null,
+      });
+
+      var bBox = section(gridsBox, 'אגף ימין b (חייב להיות ≥ 0):');
+      var bGrid = MI.create(bBox, {
+        rows: m, cols: 1,
+        values: prefill ? toStrings(prefill.b.map(function (v) { return [v]; })) : null,
+      });
+
+      var err = document.createElement('p');
+      err.className = 'error-msg';
+      gridsBox.appendChild(err);
+
+      var startBtn = document.createElement('button');
+      startBtn.type = 'button';
+      startBtn.className = 'btn primary big';
+      startBtn.textContent = 'התחל תרגול ←';
+      startBtn.addEventListener('click', function () {
+        err.textContent = '';
+        var c = parseRow(cGrid.getStrings()[0]);
+        var A = aGrid.getStrings().map(parseRow);
+        var b = parseRow(bGrid.getStrings().map(function (r) { return r[0]; }));
+        if (c === null || A.some(function (r) { return r === null; }) || b === null) {
+          err.textContent = 'יש תאים ריקים או לא תקינים — מלא מספר (או שבר a/b) בכל תא.';
+          return;
+        }
+        if (b.some(function (v) { return v < 0; })) {
+          err.textContent = 'כל רכיבי b חייבים להיות אי-שליליים (זה מה שמבטיח שבסיס הסרק ההתחלתי ישים).';
+          return;
+        }
+        onStart({ n: n, m: m, c: c, A: A, b: b });
+      });
+      gridsBox.appendChild(startBtn);
+    }
+
+    function parseRow(strs) {
+      var out = [];
+      for (var i = 0; i < strs.length; i++) {
+        var v = Parse.parseNumber(strs[i]);
+        if (isNaN(v)) return null;
+        out.push(v);
+      }
+      return out;
+    }
+
+    function section(parent, title) {
+      var box = document.createElement('div');
+      box.className = 'setup-section';
+      var h = document.createElement('h3');
+      h.textContent = title;
+      box.appendChild(h);
+      parent.appendChild(box);
+      return box;
+    }
+  }
+
+  window.Simplex = window.Simplex || {};
+  window.Simplex.problemSetupUI = { init: init };
+})();

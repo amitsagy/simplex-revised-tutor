@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מחשבון דירוג מטריצות</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>🧮 מחשבון דירוג מטריצות</h1>
+  <nav><a class="btn" href="index.html">→ חזרה למאמן</a></nav>
+</header>
+<main id="app">
+  <div class="card" id="calc-setup" hidden>
+    <h2>פעולות שורה אלמנטריות</h2>
+    <p>דירוג ידני (עם לוג וביטול), פיבוט בלחיצה על תא, צעד אוטומטי — או פתרון מלא בלחיצה אחת.</p>
+    <div class="size-row">
+      <label>מצב:
+        <select id="calc-mode">
+          <option value="free">דירוג חופשי</option>
+          <option value="inverse">מציאת הופכית (B⁻¹)</option>
+        </select>
+      </label>
+      <label>שורות: <select id="calc-rows"></select></label>
+      <label id="calc-cols-label">עמודות: <select id="calc-cols"></select></label>
+      <button type="button" class="btn primary" id="calc-build">בנה טבלה</button>
+    </div>
+    <div id="calc-input"></div>
+  </div>
+  <div class="card" id="calc-panel"></div>
+</main>
+<script src="js/parse.js"></script>
+<script src="js/answer-check.js"></script>
+<script src="js/row-reduce.js"></script>
+<script src="js/matrix-input.js"></script>
+<script src="js/row-reduce-ui.js"></script>
+<script src="js/calculator-main.js"></script>
+</body>
+</html>
