@@ -11,6 +11,7 @@
 
   var isNode = typeof module !== 'undefined' && module.exports;
   var Engine = isNode ? require('./engine.js') : window.Simplex.engine;
+  var Duality = isNode ? require('./duality.js') : window.Simplex.duality;
 
   /* --- seedable RNG --- */
   function makeRng(seed) {
@@ -188,6 +189,35 @@
     return null;
   }
 
+  /**
+   * Duality drill (targil 9): a general-form primal to build the dual from.
+   * No solving needed — any structurally valid problem is a valid exercise.
+   * Small integer coefficients, mostly-standard constraint/variable types
+   * with an occasional =, ≥, free or ≤0 to exercise the full mapping table.
+   */
+  function generateDualityProblem(opts) {
+    opts = opts || {};
+    var rng = makeRng(opts.seed);
+    var n = randInt(rng, 2, 3);
+    var m = randInt(rng, 2, 3);
+    var A = [];
+    for (var i = 0; i < m; i++) {
+      var row = [];
+      for (var j = 0; j < n; j++) row.push(randInt(rng, -2, 5));
+      if (row.every(function (x) { return x === 0; })) row[randInt(rng, 0, n - 1)] = randInt(rng, 1, 5);
+      A.push(row);
+    }
+    var c = [], b = [];
+    for (var k = 0; k < n; k++) c.push(randInt(rng, 1, 9));
+    for (var r = 0; r < m; r++) b.push(randInt(rng, -6, 12));
+    var CT = ['le', 'le', 'le', 'eq', 'ge'];       // biased toward ≤
+    var VT = ['ge0', 'ge0', 'ge0', 'free', 'le0']; // biased toward ≥0
+    var ctypes = [], vtypes = [];
+    for (var ci = 0; ci < m; ci++) ctypes.push(CT[randInt(rng, 0, CT.length - 1)]);
+    for (var vi = 0; vi < n; vi++) vtypes.push(VT[randInt(rng, 0, VT.length - 1)]);
+    return { dir: 'max', n: n, m: m, c: c, A: A, b: b, ctypes: ctypes, vtypes: vtypes };
+  }
+
   var api = {
     makeRng: makeRng,
     isNice: isNice,
@@ -195,6 +225,7 @@
     simulate: simulate,
     generateProblem: generateProblem,
     generateReverseProblem: generateReverseProblem,
+    generateDualityProblem: generateDualityProblem,
   };
 
   if (typeof window !== 'undefined') {

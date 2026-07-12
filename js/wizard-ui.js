@@ -193,6 +193,7 @@
     fwd.id = 'tl-fwd';
     fwd.disabled = !timeline.future.length;
     var pos = session.mode === 'reverse' ? 'שחזור'
+      : session.mode === 'duality' ? 'דואליות'
       : session.phase === 'setup' ? 'הקמה'
       : session.phase === 'done' ? 'סיום'
       : 'איטרציה ' + (session.iterIndex + 1);
@@ -234,16 +235,35 @@
 
   /* ---------- problem reference (always visible) ---------- */
 
-  function linComb(coeffs) {
+  function linComb(coeffs, name) {
+    name = name || 'x';
     var parts = [];
     coeffs.forEach(function (c, i) {
       if (c === 0) return;
       var mag = Math.abs(c);
-      var term = (mag === 1 ? '' : fmt(mag)) + 'x<sub>' + (i + 1) + '</sub>';
+      var term = (mag === 1 ? '' : fmt(mag)) + name + '<sub>' + (i + 1) + '</sub>';
       if (parts.length === 0) parts.push((c < 0 ? '−' : '') + term);
       else parts.push((c < 0 ? ' − ' : ' + ') + term);
     });
     return parts.length ? parts.join('') : '0';
+  }
+
+  /* Relations & variable domains for a GENERAL problem (duality / non-standard
+   * forms): { dir, c, A, b, ctypes, vtypes }. */
+  function relSym(t) { return t === 'le' ? '≤' : t === 'ge' ? '≥' : '='; }
+  function domHTML(name, idx, t) {
+    var v = name + '<sub>' + idx + '</sub>';
+    return t === 'ge0' ? v + ' ≥ 0' : t === 'le0' ? v + ' ≤ 0' : v + ' חופשי';
+  }
+  function generalFormulationHTML(spec, name) {
+    name = name || 'x';
+    var lines = [(spec.dir === 'max' ? 'Max' : 'Min') + ' ' + linComb(spec.c, name), 's.t.'];
+    spec.A.forEach(function (row, i) {
+      lines.push(linComb(row, name) + ' ' + relSym(spec.ctypes[i]) + ' ' + fmt(spec.b[i]));
+    });
+    var doms = spec.vtypes.map(function (t, j) { return domHTML(name, j + 1, t); });
+    lines.push(doms.join(' , '));
+    return '<div class="formulation ltr-math">' + lines.join('<br>') + '</div>';
   }
 
   /* The GIVEN optimal tableau for the reverse drill: identity under the basic
@@ -288,8 +308,51 @@
     els.problemRef.innerHTML = h;
   }
 
+  /* Duality drill: show the primal; the student builds the dual step by step. */
+  function dualityGivenHTML() {
+    var d = session.duality;
+    var h = '<h2>🔄 דואליות — בניית הבעיה הדואלית</h2>';
+    h += '<p>נתונה הבעיה הפרימלית. בנה את הבעיה הדואלית שלה צעד-אחר-צעד לפי טבלת ההצמדה ' +
+      '(כיוון → ממדים → מקדמי מטרה → אילוצים → תחומי המשתנים).</p>';
+    h += '<div class="ref-cols"><div><div class="mini-label">הבעיה הפרימלית</div>' +
+      generalFormulationHTML(d.primal, 'x') + '</div></div>';
+    els.problemRef.innerHTML = h;
+  }
+
+  /* The dual as assembled so far — pending pieces shown as "?". */
+  function dualitySoFarHTML() {
+    var d = session.duality;
+    var dual = d.dual;
+    var m = d.primal.A.length, n = d.primal.c.length;
+    var done = {};
+    session.stepQueue.slice(0, session.stepIndex).forEach(function (st) { done[st.key] = true; });
+    var Q = '<span class="q-mark">?</span>';
+
+    var dirTxt = done['dual-dir'] ? (dual.dir === 'max' ? 'Max' : 'Min') : Q;
+    var objTxt = done['dualObj'] ? linComb(dual.c, 'y') : Q;
+    var lines = [dirTxt + ' ' + objTxt, 's.t.'];
+    for (var j = 0; j < n; j++) {
+      var lhs, rhs;
+      if (done['dualCon' + j]) {
+        var col = d.primal.A.map(function (row) { return row[j]; });
+        lhs = linComb(col, 'y');
+        rhs = fmt(dual.b[j]);
+      } else { lhs = Q; rhs = Q; }
+      var rel = done['dualRel' + j] ? relSym(dual.ctypes[j]) : Q;
+      lines.push(lhs + ' ' + rel + ' ' + rhs);
+    }
+    var doms = [];
+    for (var i = 0; i < m; i++) {
+      doms.push(done['dualSign' + i] ? domHTML('y', i + 1, dual.vtypes[i]) : 'y<sub>' + (i + 1) + '</sub> ' + Q);
+    }
+    lines.push(doms.join(' , '));
+    return '<div class="card done-steps"><h3>הבעיה הדואלית — נבנית</h3>' +
+      '<div class="formulation ltr-math">' + lines.join('<br>') + '</div></div>';
+  }
+
   function renderProblemRef() {
     if (session.mode === 'reverse') { reverseGivenHTML(); return; }
+    if (session.mode === 'duality') { dualityGivenHTML(); return; }
     var p = session.problem;
     var html = '<h2>התרגיל</h2><div class="ref-cols"><div class="formulation ltr-math">';
     html += 'Max Z = ' + linComb(p.c) + '<br>s.t.<br>';
@@ -340,8 +403,9 @@
   }
 
   function gridLabelsFor(st) {
-    // reverse-drill steps carry their own labels (no per-iteration canonical)
-    if (session.mode === 'reverse') {
+    // non-forward drills (reverse/duality/…) carry their own labels: colLabels
+    // are literal strings, rowLabels are variable indices.
+    if (session.mode !== 'forward') {
       var out = {};
       if (st.rowLabels) out.rowLabels = varLabels(st.rowLabels);
       if (st.colLabels) out.colLabels = st.colLabels;
@@ -370,7 +434,7 @@
       var chosen = (st.options.filter(function (o) { return o.id === st.correct; })[0] || {}).label || '✓';
       return '<div class="done-badge">✓ ' + chosen + '</div>';
     }
-    if (session.mode === 'reverse') {
+    if (session.mode !== 'forward' && st.kind === 'quantity') {
       var lbl = stepLabel(st);
       if (st.qtype === 'scalar') return '<div class="done-item ltr-math">' + lbl + ' = ' + fmt(st.correct) + '</div>';
       var rlabels = gridLabelsFor(st);
@@ -429,6 +493,10 @@
 
   function renderWorkspace() {
     var html = '';
+    if (session.mode === 'duality') {
+      els.workspace.innerHTML = dualitySoFarHTML();
+      return;
+    }
     if (session.phase === 'iter') {
       var g = session.canonical.given;
       html += '<div class="card given"><h3>איטרציה ' + (session.iterIndex + 1) +
@@ -467,9 +535,11 @@
     var card = el('div', 'card prompt');
     var title = session.mode === 'reverse'
       ? '🔍 שחזור הבעיה'
-      : session.phase === 'setup'
-        ? '🚀 פתיחת התרגיל'
-        : '🔁 איטרציה ' + (session.iterIndex + 1);
+      : session.mode === 'duality'
+        ? '🔄 בניית הבעיה הדואלית'
+        : session.phase === 'setup'
+          ? '🚀 פתיחת התרגיל'
+          : '🔁 איטרציה ' + (session.iterIndex + 1);
     card.appendChild(el('h3', 'prompt-title', title));
 
     var applyReveal;
@@ -1050,7 +1120,33 @@
   function renderFinal() {
     if (examTicker) { clearInterval(examTicker); examTicker = null; }
     if (session.mode === 'reverse') { renderReverseFinal(); return; }
+    if (session.mode === 'duality') { renderDualityFinal(); return; }
     renderFinalBody();
+  }
+
+  function renderDualityFinal() {
+    var d = session.duality;
+    var card = el('div', 'card final');
+    card.appendChild(el('h2', null, '🎉 בנית את הבעיה הדואלית!'));
+    var box = el('div', 'ref-cols');
+    box.appendChild(el('div', null,
+      '<div class="mini-label">הבעיה הפרימלית</div>' + generalFormulationHTML(d.primal, 'x')));
+    box.appendChild(el('div', null,
+      '<div class="mini-label">הבעיה הדואלית</div>' + generalFormulationHTML(d.dual, 'y')));
+    card.appendChild(box);
+    card.appendChild(el('p', 'shadow-note',
+      'המשתנים של הבעיה הדואלית הם <b>מחירי הצל</b> של האילוצים בבעיה הפרימלית: ' +
+      '<span class="ltr-math">y*ᵢ</span> הוא כמה שווה יחידה נוספת מהמשאב באילוץ ' +
+      '<span class="ltr-math">i</span>. הפתרון האופטימלי של הדואלית נותן את מחירי הצל של הפרימלית ' +
+      '(ומתכונת הדואליות החזקה — לשתי הבעיות אותו ערך פונקציית מטרה באופטימום).'));
+    var hs = Session.helpSummary(session);
+    if (hs.length) {
+      card.appendChild(el('p', 'help-tip', 'נעזרת ברמזים ב-' + hs.length + ' שלבים — שווה חזרה.'));
+    } else {
+      card.appendChild(el('p', 'no-help', 'בנית את הכול בלי עזרה — מצוין! 💪'));
+    }
+    card.appendChild(btn('תרגיל חדש', 'btn primary big', function () { onNewProblemCb(); }));
+    els.prompt.appendChild(card);
   }
 
   function renderReverseFinal() {

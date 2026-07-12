@@ -513,6 +513,8 @@ select {
 .quiz-options { flex-direction: column; align-items: stretch; }
 .quiz-btn { text-align: start; }
 .inverse-tip a { color: var(--accent); }
+/* pending pieces in the "dual being built" panel */
+.q-mark { color: var(--muted); font-weight: 700; opacity: 0.6; }
 .shadow-box {
   margin: 12px 0;
   padding: 10px 14px;

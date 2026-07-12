@@ -15,6 +15,8 @@ var RR = require(path.join(__dirname, '../js/row-reduce.js'));
 var Engine = require(path.join(__dirname, '../js/engine.js'));
 var Session = require(path.join(__dirname, '../js/session.js'));
 var Generator = require(path.join(__dirname, '../js/generator.js'));
+var Duality = require(path.join(__dirname, '../js/duality.js'));
+var Exercises = require(path.join(__dirname, '../js/exercises.js'));
 var wyndor = require(path.join(__dirname, 'fixtures/wyndor.js'));
 var hw1a = require(path.join(__dirname, 'fixtures/hw1a.js'));
 
@@ -480,6 +482,101 @@ check('generator: wantUnbounded returns unbounded', pu && Generator.simulate(pu,
   check('reverse-walk: B·B⁻¹ = I', eqMat(bbi, [[1, 0], [0, 1]]), show(bbi));
   var yb = r.y[0] * r.b[0] + r.y[1] * r.b[1];
   check('reverse-walk: Z = yᵀb', eqNum(yb, r.Z));
+})();
+
+/* ---------- duality (targil 9) ---------- */
+
+function eqProblem(a, b) {
+  return a.dir === b.dir && eqVec(a.c, b.c) && eqMat(a.A, b.A) && eqVec(a.b, b.b) &&
+    eqIntVecStr(a.ctypes, b.ctypes) && eqIntVecStr(a.vtypes, b.vtypes);
+}
+function eqIntVecStr(a, b) {
+  return a.length === b.length && a.every(function (x, i) { return x === b[i]; });
+}
+
+(function () {
+  // targil 9 exercise 1: standard Max with ≤ / x≥0 -> Min with ≥ / y≥0
+  var ex1 = Exercises.byId['t9-ex1'].data;
+  var d1 = Duality.buildDual(ex1);
+  check('duality ex1 dir', d1.dir === 'min');
+  check('duality ex1 obj = primal b', eqVec(d1.c, [24, 8, 48, 32]), show(d1.c));
+  check('duality ex1 A = Aᵀ', eqMat(d1.A, [[4, 3, 0, 2], [0, 1, 1, 0], [1, 4, 4, 0]]), show(d1.A));
+  check('duality ex1 rhs = primal c', eqVec(d1.b, [12, 3, 1]), show(d1.b));
+  check('duality ex1 ctypes', eqIntVecStr(d1.ctypes, ['ge', 'ge', 'ge']), show(d1.ctypes));
+  check('duality ex1 vtypes', eqIntVecStr(d1.vtypes, ['ge0', 'ge0', 'ge0', 'ge0']), show(d1.vtypes));
+
+  // targil 9 exercise 2: non-standard (=, ≥, free variable)
+  var ex2 = Exercises.byId['t9-ex2'].data;
+  var d2 = Duality.buildDual(ex2);
+  check('duality ex2 full', eqProblem(d2, {
+    dir: 'min', c: [1, 2, 1], A: [[1, 5, 1], [-1, 2, 1]], b: [1, 3],
+    ctypes: ['eq', 'ge'], vtypes: ['ge0', 'free', 'le0'],
+  }), show(d2));
+
+  // homework 9 q1: Min primal with free var and = constraint -> Max dual
+  var hq1 = Exercises.byId['hw9-q1'].data;
+  var dh = Duality.buildDual(hq1);
+  check('duality hw9-q1 full', eqProblem(dh, {
+    dir: 'max', c: [3, 5, 12], A: [[1, 1, 3], [0, 2, 0]], b: [1, -1],
+    ctypes: ['eq', 'le'], vtypes: ['ge0', 'le0', 'free'],
+  }), show(dh));
+
+  // symmetry: dual(dual(p)) === p for every stored duality problem
+  Exercises.list.filter(function (e) { return e.mode === 'duality'; }).forEach(function (e) {
+    var back = Duality.buildDual(Duality.buildDual(e.data));
+    check('duality symmetry ' + e.id, eqProblem(back, e.data), show(back));
+  });
+})();
+
+// generator: duality problems are structurally valid
+(function () {
+  var bad = 0;
+  for (var seed = 1; seed <= 20; seed++) {
+    var p = Generator.generateDualityProblem({ seed: seed * 5011 });
+    var m = p.A.length, n = p.c.length;
+    var okShape = p.b.length === m && p.ctypes.length === m &&
+      p.vtypes.length === n && p.A.every(function (r) { return r.length === n; });
+    var okTypes = p.ctypes.every(function (t) { return ['le', 'eq', 'ge'].indexOf(t) >= 0; }) &&
+      p.vtypes.every(function (t) { return ['ge0', 'free', 'le0'].indexOf(t) >= 0; });
+    var d = Duality.buildDual(p);
+    var okSym = eqProblem(Duality.buildDual(d), p);
+    if (!okShape || !okTypes || !okSym) bad++;
+  }
+  check('duality generator: 20 seeds valid + symmetric', bad === 0, 'bad=' + bad);
+})();
+
+// full duality session walk with canonical answers
+(function () {
+  var primal = Exercises.byId['hw9-q1'].data;
+  var s = Session.createDualitySession(primal);
+  check('duality-walk: mode', s.mode === 'duality' && s.phase === 'duality');
+  var guard = 0;
+  while (s.status === 'in-progress' && guard++ < 100) {
+    var st = Session.getCurrent(s);
+    var res;
+    if (st.kind === 'quiz') {
+      var wrong = st.options.filter(function (o) { return o.id !== st.correct; })[0];
+      check('duality-walk: wrong quiz rejected ' + st.key, Session.submitQuiz(s, wrong.id).ok === false);
+      res = Session.submitQuiz(s, st.correct);
+      check('duality-walk: quiz ' + st.key, res.ok);
+    } else if (s.substage === 'dims') {
+      res = Session.submitDims(s, { rows: st.dims[0], cols: st.dims[1] });
+      check('duality-walk: dims ' + st.key, res.ok);
+    } else if (st.qtype === 'grid') {
+      res = Session.submitGrid(s, st.correct.map(function (r) { return r.map(Parse.formatNumber); }));
+      check('duality-walk: grid ' + st.key, res.ok);
+    } else {
+      check('duality-walk: unexpected step ' + st.key + '/' + s.substage, false);
+      break;
+    }
+  }
+  check('duality-walk: completed', s.status === 'duality-done' && guard < 100, s.status);
+  check('duality-walk: errors tracked', s.errorLog.length >= 1);
+  // round-trip mid-walk
+  var s2 = Session.createDualitySession(primal);
+  Session.submitQuiz(s2, Session.getCurrent(s2).correct); // dual-dir
+  var revived = JSON.parse(JSON.stringify(s2));
+  check('duality-walk: round-trip equal', JSON.stringify(revived) === JSON.stringify(s2));
 })();
 
 /* ---------- summary ---------- */

@@ -17,6 +17,7 @@
   var Check = isNode ? require('./answer-check.js') : window.Simplex.answerCheck;
   var Parse = isNode ? require('./parse.js') : window.Simplex.parse;
   var Generator = isNode ? require('./generator.js') : window.Simplex.generator;
+  var Duality = isNode ? require('./duality.js') : window.Simplex.duality;
 
   /* NOTE: no "שלב N" numbering in the labels — the options are shuffled, and
    * a visible number would give the order away. */
@@ -321,6 +322,123 @@
     return settle(s, { ok: id === st.correct });
   }
 
+  /* ---- duality drill (targil 9): build the dual from the primal ---- */
+
+  function dualVarLabels(m) {
+    var out = [];
+    for (var i = 1; i <= m; i++) out.push('y' + i);
+    return out;
+  }
+  function dedupOptions(opts) {
+    var seen = {}, out = [];
+    opts.forEach(function (o) { if (!seen[o.id]) { seen[o.id] = true; out.push(o); } });
+    return out;
+  }
+  function vtypeText(t) {
+    return t === 'ge0' ? 'אי-שלילי (≥0)' : t === 'le0' ? 'אי-חיובי (≤0)' : 'חופשי';
+  }
+  function ctypeText(t) { return t === 'le' ? '≤' : t === 'ge' ? '≥' : '='; }
+  function domText(t) { return t === 'ge0' ? '≥0' : t === 'le0' ? '≤0' : 'חופשי'; }
+  function dirWord(dir) { return dir === 'max' ? 'מקסימום' : 'מינימום'; }
+  function relWhy(dir, vtype, ctype) {
+    return 'לפי טבלת ההצמדה: בבעיית ' + dirWord(dir) + ', משתנה ' + vtypeText(vtype) +
+      ' בבעיה הפרימלית גורר אילוץ דואלי מסוג ' + ctypeText(ctype) + '.';
+  }
+  function signWhy(dir, ctype, vtype) {
+    return 'לפי טבלת ההצמדה: בבעיית ' + dirWord(dir) + ', אילוץ מסוג ' + ctypeText(ctype) +
+      ' בבעיה הפרימלית גורר משתנה דואלי ' + domText(vtype) + '.';
+  }
+
+  function dualityQuiz(id, question, options, correct, why) {
+    return { kind: 'quiz', key: id, question: question, options: options, correct: correct, why: why };
+  }
+
+  function buildDualitySteps(s) {
+    var primal = s.duality.primal;
+    var dual = s.duality.dual;
+    var m = primal.A.length;   // # primal constraints  = # dual variables
+    var n = primal.c.length;   // # primal variables    = # dual constraints
+    var steps = [];
+
+    steps.push(dualityQuiz('dual-dir',
+      'הבעיה הפרימלית היא בעיית <b>' + dirWord(primal.dir) + '</b>. <b>איזו בעיה תהיה הדואלית שלה?</b>',
+      [{ id: 'max', label: 'בעיית מקסימום (Max)' }, { id: 'min', label: 'בעיית מינימום (Min)' }],
+      dual.dir,
+      'ההצמדה תמיד הופכת את כיוון האופטימיזציה: הדואלית של בעיית Max היא בעיית Min, ולהפך.'));
+
+    steps.push(dualityQuiz('dual-nvars',
+      '<b>כמה משתני החלטה יהיו בבעיה הדואלית?</b>',
+      dedupOptions([{ id: m, label: String(m) }, { id: n, label: String(n) }, { id: m + n, label: String(m + n) }]),
+      m,
+      'לכל אילוץ בבעיה הפרימלית מתאים משתנה דואלי אחד — מספר המשתנים הדואליים שווה למספר האילוצים הפרימליים (' + m + ').'));
+
+    steps.push(dualityQuiz('dual-ncons',
+      '<b>כמה אילוצים פונקציונליים יהיו בבעיה הדואלית?</b>',
+      dedupOptions([{ id: n, label: String(n) }, { id: m, label: String(m) }, { id: m + n, label: String(m + n) }]),
+      n,
+      'לכל משתנה בבעיה הפרימלית מתאים אילוץ דואלי אחד — מספר האילוצים הדואליים שווה למספר המשתנים הפרימליים (' + n + ').'));
+
+    steps.push({ kind: 'quantity', key: 'dualObj', quantityId: 'dualObj', qtype: 'grid',
+      dims: [1, m], correct: [dual.c.slice()], noRecall: true,
+      colLabels: dualVarLabels(m),
+      label: 'מקדמי פונקציית המטרה הדואלית',
+      why: 'מקדמי היעד של הבעיה הדואלית הם אגף ימין (b) של הבעיה הפרימלית.' });
+
+    for (var j = 0; j < n; j++) {
+      var col = primal.A.map(function (row) { return row[j]; });   // primal column j = A^T row j
+      steps.push({ kind: 'quantity', key: 'dualCon' + j, quantityId: 'dualCon' + j, qtype: 'grid',
+        dims: [1, m + 1], correct: [col.concat([dual.b[j]])], noRecall: true,
+        colLabels: dualVarLabels(m).concat(['אגף ימין']),
+        label: 'האילוץ הדואלי מס׳ ' + (j + 1) + ' (מתאים ל-x' + (j + 1) + ')',
+        why: 'האילוץ הדואלי המתאים ל-x' + (j + 1) + ': המקדמים הם עמודה ' + (j + 1) +
+          ' של A (שורה ' + (j + 1) + ' ב-Aᵀ), ואגף ימין הוא המקדם c' + (j + 1) + ' של x' + (j + 1) + ' בפונקציית המטרה הפרימלית.' });
+      steps.push(dualityQuiz('dualRel' + j,
+        'מה <b>סוג האילוץ</b> הדואלי המתאים ל-x' + (j + 1) + ' (שהוא ' + vtypeText(primal.vtypes[j]) + ')?',
+        [{ id: 'ge', label: '≥ (גדול-שווה)' }, { id: 'eq', label: '= (שוויון)' }, { id: 'le', label: '≤ (קטן-שווה)' }],
+        dual.ctypes[j],
+        relWhy(primal.dir, primal.vtypes[j], dual.ctypes[j])));
+    }
+
+    for (var i = 0; i < m; i++) {
+      steps.push(dualityQuiz('dualSign' + i,
+        'מה <b>התחום</b> של המשתנה הדואלי y' + (i + 1) + ' (המתאים לאילוץ הפרימלי מס׳ ' + (i + 1) +
+        ', מסוג ' + ctypeText(primal.ctypes[i]) + ')?',
+        [{ id: 'ge0', label: 'y' + (i + 1) + ' ≥ 0' }, { id: 'free', label: 'y' + (i + 1) + ' חופשי' }, { id: 'le0', label: 'y' + (i + 1) + ' ≤ 0' }],
+        dual.vtypes[i],
+        signWhy(primal.dir, primal.ctypes[i], dual.vtypes[i])));
+    }
+
+    return steps;
+  }
+
+  function createDualitySession(primal, opts) {
+    opts = opts || {};
+    var dual = Duality.buildDual(primal);
+    var s = {
+      problem: { n: primal.c.length, m: primal.A.length, c: primal.c, A: primal.A, b: primal.b },
+      mode: 'duality',
+      examMode: !!opts.examMode,
+      phase: 'duality',
+      status: 'in-progress',
+      iterIndex: -1,
+      duality: { primal: primal, dual: dual },
+      canonical: null,
+      iterations: [],
+      stepQueue: [],
+      stepIndex: 0,
+      substage: null,
+      history: [],
+      helpLog: [],
+      autoLog: [],
+      errorLog: [],
+      elapsedMs: 0,
+      finalResult: null,
+    };
+    s.stepQueue = buildDualitySteps(s);
+    s.substage = initialSubstage(s.stepQueue[0]);
+    return s;
+  }
+
   function createSession(problem, opts) {
     opts = opts || {};
     var full = Engine.buildFullProblem(problem);
@@ -402,6 +520,12 @@
       s.status = 'reverse-done';
       s.phase = 'done';
       s.finalResult = { reverse: s.reverse };
+      return;
+    }
+    if (s.mode === 'duality') {
+      s.status = 'duality-done';
+      s.phase = 'done';
+      s.finalResult = { duality: s.duality };
       return;
     }
     if (s.phase === 'setup') {
@@ -565,9 +689,9 @@
     var st = getCurrent(s);
     if (!st) return '';
     if (st.kind === 'quiz') return st.why || st.question;
-    if (s.mode === 'reverse' && st.kind === 'quantity' && st.why) {
-      // reverse steps carry their own explanation (reading a tableau, not the
-      // forward-mode formula) — prefer it over the generic Q_HINTS.
+    if (st.kind === 'quantity' && st.why) {
+      // reverse / duality / sensitivity steps carry their own explanation
+      // (reading a tableau or a rule, not the forward-mode formula) — prefer it.
       return st.why;
     }
     if (st.kind === 'stepRecall') {
@@ -654,7 +778,7 @@
     var st = getCurrent(s);
     if (!st) return '';
     if (st.kind === 'quiz') return st.why || '';
-    if (s.mode === 'reverse' && st.why) return st.why;
+    if (st.kind === 'quantity' && st.why) return st.why;
     var c = s.canonical;
     if (st.kind === 'stepRecall') return STEP_WHY[st.correctStep] || '';
     if (st.kind === 'decision') {
@@ -713,6 +837,8 @@
       lines.push('מצב: הקמה — קביעת הבסיס ההתחלתי.');
     } else if (s.phase === 'done') {
       lines.push('מצב: התרגיל הסתיים (' + (s.status === 'optimal' ? 'פתרון אופטימלי' : 'לא חסום') + ').');
+    } else if (s.phase !== 'iter' || !s.canonical) {
+      lines.push('מצב: תרגול (' + (s.mode || '') + ').');
     } else {
       var g = s.canonical.given;
       lines.push('מצב: איטרציה ' + (s.iterIndex + 1) + '. B = ' + fmtSet(g.B) + ', N = ' + fmtSet(g.N));
@@ -781,6 +907,7 @@
     QUANTITIES: QUANTITIES,
     createSession: createSession,
     createReverseSession: createReverseSession,
+    createDualitySession: createDualitySession,
     getCurrent: getCurrent,
     submitStepRecall: submitStepRecall,
     submitQuiz: submitQuiz,
