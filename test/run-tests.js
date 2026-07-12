@@ -727,6 +727,87 @@ function walkSensitivity(ex) {
   check('sens: round-trip equal', JSON.stringify(revived) === JSON.stringify(sr));
 })();
 
+/* ---------- library: guided / reverse-data / mid-iteration (targil 8) ---------- */
+
+function submitAnyStep(s) {
+  var st = Session.getCurrent(s);
+  if (st.kind === 'stepRecall') return Session.submitStepRecall(s, st.correctStep);
+  if (st.kind === 'decision') return Session.submitDecision(s, Session.getCorrectChoice(s));
+  if (st.kind === 'quiz') return Session.submitQuiz(s, st.correct);
+  if (s.substage === 'recall') return Session.submitQuantityRecall(s, st.quantityId);
+  if (s.substage === 'dims') return Session.submitDims(s, st.qtype === 'indexList' ? { size: st.correct.length } : { rows: st.dims[0], cols: st.dims[1] });
+  if (st.qtype === 'scalar') return Session.submitScalar(s, Parse.formatNumber(st.correct));
+  if (st.qtype === 'grid') return Session.submitGrid(s, st.correct.map(function (r) { return r.map(Parse.formatNumber); }));
+  if (st.qtype === 'indexList') return Session.submitIndexList(s, st.correct.slice());
+  if (st.qtype === 'ratios') return Session.submitRatios(s, st.correct.map(function (v) { return v === null ? '-' : Parse.formatNumber(v); }));
+  if (st.qtype === 'columnPick') return Session.submitColumnPick(s, st.correct.slice());
+  return { ok: false };
+}
+function walkAny(s) {
+  var g = 0;
+  while (s.status === 'in-progress' && g++ < 300) {
+    var r = submitAnyStep(s);
+    if (!r || !r.ok) { check('walkAny stuck at ' + Session.getCurrent(s).key, false); break; }
+  }
+  return s;
+}
+
+(function () {
+  // guided (homework 9 q6): complementary-slackness reasoning -> x1=6.5, x3=2.25, Z=99
+  var g = walkAny(Session.createGuidedSession(Exercises.byId['hw9-q6'].data));
+  check('guided: done', g.status === 'guided-done', g.status);
+  check('guided: conclusion mentions 99', g.finalResult.guided.conclusion.indexOf('99') >= 0);
+
+  // reverse-from-data (homework 8 q3): rebuild from decimal B⁻¹, y, b
+  var rd = walkAny(Session.createReverseFromData(Exercises.byId['hw8-q3'].data));
+  check('reverse-data: done', rd.status === 'reverse-done', rd.status);
+  check('reverse-data: cᵀ ≈ (3.592, 9.714)',
+    Math.abs(rd.reverse.c[0] - 3.592) < 5e-3 && Math.abs(rd.reverse.c[1] - 9.714) < 5e-3, show(rd.reverse.c));
+  check('reverse-data: Z = 20', eqNum(rd.reverse.Z, 20), String(rd.reverse.Z));
+  check('reverse-data: A === B (basis all originals)', eqMat(rd.reverse.A, rd.reverse.Bmatrix));
+
+  // mid-iteration (homework 8 q2): one iteration from a given basis
+  var q2a = walkAny(Session.createSession(Exercises.byId['hw8-q2a'].data.problem, { startBasis: [3, 1, 2], maxIters: 1 }));
+  check('hw8-q2a: partial after 1 iter, x5 in / x3 out',
+    q2a.status === 'partial' && q2a.finalResult.entering === 5 && q2a.finalResult.leaving === 3, q2a.status);
+  check('hw8-q2a: new basis {5,1,2}', eqIntVec(q2a.finalResult.given.B, [5, 1, 2]), show(q2a.finalResult.given.B));
+  var q2b = walkAny(Session.createSession(Exercises.byId['hw8-q2b'].data.problem, { startBasis: [2, 3, 4], maxIters: 1 }));
+  check('hw8-q2b: already optimal', q2b.status === 'optimal', q2b.status);
+  var q2c = walkAny(Session.createSession(Exercises.byId['hw8-q2c'].data.problem, { startBasis: [1, 5, 6], maxIters: 1 }));
+  check('hw8-q2c: unbounded (x2 enters)', q2c.status === 'unbounded' && q2c.finalResult.enteringVar === 2, q2c.status);
+
+  // hw8-q1b forward: optimal Z=7 with multiple optima
+  var q1b = walkAny(Session.createSession(Exercises.byId['hw8-q1b'].data));
+  check('hw8-q1b: optimal Z=7', q1b.status === 'optimal' && eqNum(q1b.finalResult.Z, 7), String(q1b.finalResult && q1b.finalResult.Z));
+  check('hw8-q1b: alternate optima flagged', q1b.finalResult.hasAlternateOptima === true);
+
+  // round-trip a guided session
+  var gr = Session.createGuidedSession(Exercises.byId['hw9-q6'].data);
+  Session.submitQuiz(gr, Session.getCurrent(gr).correct);
+  var revived = JSON.parse(JSON.stringify(gr));
+  check('guided: round-trip equal', JSON.stringify(revived) === JSON.stringify(gr));
+})();
+
+// library data integrity: every entry has a known mode and the required data
+(function () {
+  var MODES = ['forward', 'reverse', 'reverse-data', 'duality', 'dualsimplex', 'sensitivity', 'guided', 'reading'];
+  var bad = [];
+  Exercises.list.forEach(function (e) {
+    if (!e.id || !e.source || !e.title) bad.push(e.id + ' missing meta');
+    if (MODES.indexOf(e.mode) < 0) bad.push(e.id + ' bad mode ' + e.mode);
+    var d = e.data;
+    if (e.mode === 'reading' && (!d.question || !d.solution)) bad.push(e.id + ' reading missing text');
+    if (e.mode === 'duality' && (!d.dir || !d.A || !d.ctypes || !d.vtypes)) bad.push(e.id + ' duality shape');
+    if (e.mode === 'sensitivity' && (!d.problem || !d.basis || !d.change)) bad.push(e.id + ' sensitivity shape');
+    if (e.mode === 'guided' && (!d.steps || !d.intro)) bad.push(e.id + ' guided shape');
+  });
+  check('library: all entries well-formed', bad.length === 0, bad.join(' ; '));
+  check('library: has entries from all six groups',
+    ['תרגול 8', 'ת״ב 8', 'תרגול 9', 'ת״ב 9', 'תרגול 10', 'ת״ב 10'].every(function (grp) {
+      return Exercises.list.some(function (e) { return Exercises.groupOf(e) === grp; });
+    }));
+})();
+
 /* ---------- summary ---------- */
 
 console.log('');

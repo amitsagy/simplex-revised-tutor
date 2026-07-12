@@ -198,6 +198,7 @@
       : session.mode === 'duality' ? 'דואליות'
       : session.mode === 'dualsimplex' ? 'סימפלקס דואלי · איטרציה ' + (session.iterIndex + 1)
       : session.mode === 'sensitivity' ? 'ניתוח רגישות'
+      : session.mode === 'guided' ? 'תרגיל מודרך'
       : session.phase === 'setup' ? 'הקמה'
       : session.phase === 'done' ? 'סיום'
       : 'איטרציה ' + (session.iterIndex + 1);
@@ -460,6 +461,11 @@
     if (session.mode === 'duality') { dualityGivenHTML(); return; }
     if (session.mode === 'dualsimplex') { dsimGivenHTML(); return; }
     if (session.mode === 'sensitivity') { sensGivenHTML(); return; }
+    if (session.mode === 'guided') {
+      els.problemRef.innerHTML = '<h2>🧭 ' + (session.guided.title || 'תרגיל מודרך') + '</h2>' +
+        '<div class="guided-intro">' + (session.guided.intro || '') + '</div>';
+      return;
+    }
     var p = session.problem;
     var html = '<h2>התרגיל</h2><div class="ref-cols"><div class="formulation ltr-math">';
     html += 'Max Z = ' + linComb(p.c) + '<br>s.t.<br>';
@@ -622,6 +628,17 @@
         sh += '</div></div>';
       }
       els.workspace.innerHTML = sh;
+      return;
+    }
+    if (session.mode === 'guided') {
+      var gdone = session.stepQueue.slice(0, session.stepIndex);
+      if (gdone.length && session.phase !== 'done') {
+        var gh = '<div class="card done-steps"><h3>הפתרון עד כה</h3><div class="mini-row">';
+        gdone.forEach(function (st) { gh += completedHTML(st); });
+        els.workspace.innerHTML = gh + '</div></div>';
+      } else {
+        els.workspace.innerHTML = '';
+      }
       return;
     }
     if (session.phase === 'iter') {
@@ -1256,7 +1273,19 @@
     if (session.mode === 'duality') { renderDualityFinal(); return; }
     if (session.mode === 'dualsimplex') { renderDsimFinal(); return; }
     if (session.mode === 'sensitivity') { renderSensFinal(); return; }
+    if (session.mode === 'guided') { renderGuidedFinal(); return; }
     renderFinalBody();
+  }
+
+  function renderGuidedFinal() {
+    var card = el('div', 'card final');
+    card.appendChild(el('h2', null, '🎉 סיימת את התרגיל המודרך!'));
+    card.appendChild(el('div', 'sens-conclusion', session.guided.conclusion || ''));
+    var hs = Session.helpSummary(session);
+    if (hs.length) card.appendChild(el('p', 'help-tip', 'נעזרת ברמזים ב-' + hs.length + ' שלבים.'));
+    else card.appendChild(el('p', 'no-help', 'פתרת בלי עזרה — מצוין! 💪'));
+    card.appendChild(btn('תרגיל חדש', 'btn primary big', function () { onNewProblemCb(); }));
+    els.prompt.appendChild(card);
   }
 
   function renderSensFinal() {
@@ -1401,6 +1430,22 @@
     var card = el('div', 'card final');
     var p = session.problem;
     var f = session.finalResult;
+
+    if (session.status === 'partial') {
+      card.appendChild(el('h2', null, '✓ סיימת ' + f.iterations + ' איטרציה' + (f.iterations > 1 ? 'ות' : '')));
+      card.appendChild(el('p', null, 'נכנס <span class="ltr-math">' + varSub(f.entering) +
+        '</span> · יצא <span class="ltr-math">' + varSub(f.leaving) + '</span>. הפתרון הבסיסי החדש:'));
+      card.appendChild(el('p', null, setEqHTML('B', f.given.B) + ' &nbsp;·&nbsp; ' + setEqHTML('N', f.given.N)));
+      card.appendChild(el('div', 'mini-row',
+        matrixHTML(colVec(f.xB), { label: 'xB', rowLabels: varLabels(f.given.B) }) +
+        matrixHTML(f.given.Binv, { label: 'B⁻¹' })));
+      card.appendChild(el('p', 'big-z ltr-math', 'Z = ' + fmt(f.Z)));
+      var hsP = Session.helpSummary(session);
+      if (hsP.length) card.appendChild(el('p', 'help-tip', 'נעזרת ברמזים ב-' + hsP.length + ' שלבים.'));
+      card.appendChild(btn('תרגיל חדש', 'btn primary big', function () { onNewProblemCb(); }));
+      els.prompt.appendChild(card);
+      return;
+    }
 
     if (session.status === 'optimal') {
       card.appendChild(el('h2', null, '🎉 הגעת לפתרון האופטימלי'));

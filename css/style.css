@@ -517,6 +517,35 @@ select {
 .q-mark { color: var(--muted); font-weight: 700; opacity: 0.6; }
 /* dual-simplex: the leaving row (most-negative RHS) */
 .mini-matrix tr.leaving-row td, .mini-matrix tr.leaving-row th { background: var(--reveal-bg); }
+
+/* ---- saved-exercise library picker ---- */
+.more-random-row { margin: 6px 0; }
+.library-panel {
+  margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--card-alt, rgba(127,127,127,0.05));
+  max-height: 55vh; overflow-y: auto;
+}
+.lib-group { margin: 12px 0 4px; color: var(--accent); font-size: 0.95rem; }
+.lib-group:first-child { margin-top: 0; }
+.lib-item {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  padding: 6px 4px; border-bottom: 1px solid var(--border);
+}
+.lib-meta { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.lib-chip {
+  flex: none; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px;
+  background: var(--reveal-bg); color: var(--reveal); font-weight: 700; white-space: nowrap;
+}
+.lib-title { font-size: 0.9rem; }
+.lib-open { flex: none; }
+
+/* ---- reading card (proofs) ---- */
+.reading-card .reading-q, .reading-card .reading-sol { margin: 10px 0; }
+.reading-card .reading-sol { padding: 10px 12px; border-inline-start: 3px solid var(--accent); background: rgba(127,127,127,0.05); border-radius: 8px; }
+.reading-card h3 { margin: 6px 0; color: var(--accent); }
+.reading-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.guided-intro { font-size: 0.95rem; }
+.sens-change, .sens-conclusion { font-size: 0.95rem; }
 .shadow-box {
   margin: 12px 0;
   padding: 10px 14px;

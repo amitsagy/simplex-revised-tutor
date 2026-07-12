@@ -49,11 +49,14 @@
       '\n\n' + GUIDE_NOTE;
   }
 
-  /** claude.ai deep link with the message prefilled; trims context if huge. */
-  function buildClaudeUrl(question) {
-    var url = CLAUDE_NEW + encodeURIComponent(buildAskText(question));
+  /** claude.ai deep link with the message prefilled; trims context if huge.
+   *  contextOverride lets non-session content (e.g. a proof reading-card)
+   *  supply its own context instead of the live session snapshot. */
+  function buildClaudeUrl(question, contextOverride) {
+    var ctx = contextOverride != null ? contextOverride : buildContext();
+    var url = CLAUDE_NEW + encodeURIComponent(buildAskText(question, ctx));
     if (url.length > MAX_URL_LEN) {
-      var trimmed = buildContext().slice(0, 1200) + '\n…(ההקשר קוצר בשל אורך)';
+      var trimmed = ctx.slice(0, 1200) + '\n…(ההקשר קוצר בשל אורך)';
       url = CLAUDE_NEW + encodeURIComponent(buildAskText(question, trimmed));
     }
     return url;

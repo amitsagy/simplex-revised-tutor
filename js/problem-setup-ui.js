@@ -8,6 +8,13 @@
   var Parse = window.Simplex.parse;
   var MI = window.Simplex.matrixInput;
   var Generator = window.Simplex.generator;
+  var Exercises = window.Simplex.exercises;
+
+  var TYPE_CHIP = {
+    forward: '🔁 סימפלקס', reverse: '🔍 שחזור', 'reverse-data': '🔍 שחזור',
+    duality: '🔄 דואליות', dualsimplex: '⚙️ ס׳ דואלי', sensitivity: '🎛️ רגישות',
+    guided: '🧭 מודרך', reading: '📖 הוכחה',
+  };
 
   var EXAMPLES = [
     {
@@ -20,7 +27,7 @@
     },
   ];
 
-  function init(container, onStart, onStartReverse) {
+  function init(container, onStart, onStartReverse, onStartExercise) {
     container.innerHTML = '';
 
     var card = document.createElement('div');
@@ -98,6 +105,35 @@
       reverseRow.appendChild(reverseBtn);
       reverseRow.appendChild(document.createTextNode(' — נתונה טבלה אופטימלית, ומשחזרים את הבעיה המקורית אחורה.'));
       card.appendChild(reverseRow);
+    }
+
+    /* random duality / dual-simplex, and the saved-exercise library */
+    if (onStartExercise) {
+      var moreRow = document.createElement('p');
+      moreRow.className = 'more-random-row';
+      var dualBtn = document.createElement('button');
+      dualBtn.type = 'button';
+      dualBtn.className = 'btn';
+      dualBtn.textContent = '🔄 דואליות אקראית';
+      dualBtn.addEventListener('click', function () {
+        onStartExercise({ mode: 'duality', data: Generator.generateDualityProblem({ seed: Date.now() >>> 0 }) },
+          { examMode: examChk.checked });
+      });
+      var dsBtn = document.createElement('button');
+      dsBtn.type = 'button';
+      dsBtn.className = 'btn';
+      dsBtn.textContent = '⚙️ סימפלקס דואלי אקראי';
+      dsBtn.addEventListener('click', function () {
+        var mp = Generator.generateDualSimplexProblem({ seed: Date.now() >>> 0 });
+        if (!mp) { window.alert('לא הצלחתי לייצר תרגיל — נסה שוב.'); return; }
+        onStartExercise({ mode: 'dualsimplex', data: mp }, { examMode: examChk.checked });
+      });
+      moreRow.appendChild(dualBtn);
+      moreRow.appendChild(document.createTextNode(' '));
+      moreRow.appendChild(dsBtn);
+      card.appendChild(moreRow);
+
+      buildLibrary(card, onStartExercise, function () { return examChk.checked; });
     }
 
     var exampleRow = document.createElement('p');
@@ -199,6 +235,63 @@
       parent.appendChild(box);
       return box;
     }
+  }
+
+  /** The saved-exercise library: a collapsible, grouped picker. */
+  function buildLibrary(card, onStartExercise, getExam) {
+    if (!Exercises || !Exercises.list.length) return;
+    var row = document.createElement('p');
+    var libBtn = document.createElement('button');
+    libBtn.type = 'button';
+    libBtn.className = 'btn primary';
+    libBtn.textContent = '📚 בחר תרגיל מהתרגולים';
+    row.appendChild(libBtn);
+    row.appendChild(document.createTextNode(' — כל התרגילים מתרגולים 8–10, שמורים לפי מצב התרגול המתאים.'));
+    card.appendChild(row);
+
+    var panel = document.createElement('div');
+    panel.className = 'library-panel';
+    panel.hidden = true;
+    card.appendChild(panel);
+
+    var built = false;
+    libBtn.addEventListener('click', function () {
+      panel.hidden = !panel.hidden;
+      if (built) return;
+      built = true;
+      // group entries by source-group, in the course order
+      var byGroup = {};
+      Exercises.list.forEach(function (e) {
+        var g = Exercises.groupOf(e);
+        (byGroup[g] = byGroup[g] || []).push(e);
+      });
+      var groups = Exercises.GROUP_ORDER.filter(function (g) { return byGroup[g]; });
+      Object.keys(byGroup).forEach(function (g) { if (groups.indexOf(g) < 0) groups.push(g); });
+      groups.forEach(function (g) {
+        var h = document.createElement('h4');
+        h.className = 'lib-group';
+        h.textContent = g;
+        panel.appendChild(h);
+        byGroup[g].forEach(function (e) {
+          var item = document.createElement('div');
+          item.className = 'lib-item';
+          var meta = document.createElement('span');
+          meta.className = 'lib-meta';
+          meta.innerHTML = '<span class="lib-chip">' + (TYPE_CHIP[e.mode] || e.mode) + '</span>' +
+            '<span class="lib-title">' + e.source + ' · ' + e.title + '</span>';
+          var open = document.createElement('button');
+          open.type = 'button';
+          open.className = 'btn lib-open';
+          open.textContent = e.mode === 'reading' ? 'קרא ↗' : 'פתח ←';
+          open.addEventListener('click', function () {
+            onStartExercise(e, { examMode: getExam() });
+          });
+          item.appendChild(meta);
+          item.appendChild(open);
+          panel.appendChild(item);
+        });
+      });
+    });
   }
 
   window.Simplex = window.Simplex || {};

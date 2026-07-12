@@ -277,27 +277,15 @@
     return steps;
   }
 
-  function createReverseSession(problem) {
+  function buildReverseSessionFromR(problem, r, opts) {
+    opts = opts || {};
     var full = Engine.buildFullProblem(problem);
-    var sim = Generator.simulate(problem, 6);
-    var g = sim.given;
-    var r = {
-      basis: g.B.slice(),                       // ordered basic vars (== [1,2])
-      Binv: g.Binv,
-      Bmatrix: Engine.computeBMatrix(full.AFull, g.B),
-      A: problem.A,
-      y: sim.y,
-      c: problem.c,
-      xB: sim.xB,
-      Z: Engine.computeZ(g.cB, sim.xB),
-      b: problem.b,
-    };
     var s = {
       problem: problem,
       AFull: full.AFull,
       cFull: full.cFull,
       mode: 'reverse',
-      examMode: false,
+      examMode: !!opts.examMode,
       phase: 'reverse',
       status: 'in-progress',
       iterIndex: -1,
@@ -317,6 +305,38 @@
     s.stepQueue = buildReverseSteps(s);
     s.substage = initialSubstage(s.stepQueue[0]);
     return s;
+  }
+
+  function createReverseSession(problem, opts) {
+    var full = Engine.buildFullProblem(problem);
+    var sim = Generator.simulate(problem, 6);
+    var g = sim.given;
+    var r = {
+      basis: g.B.slice(),                       // ordered basic vars (== [1,2])
+      Binv: g.Binv,
+      Bmatrix: Engine.computeBMatrix(full.AFull, g.B),
+      A: problem.A,
+      y: sim.y,
+      c: problem.c,
+      xB: sim.xB,
+      Z: Engine.computeZ(g.cB, sim.xB),
+      b: problem.b,
+    };
+    return buildReverseSessionFromR(problem, r, opts);
+  }
+
+  /** Reverse drill from explicit tableau data (targil-8 Q3): given B⁻¹, y, b,
+   *  reconstruct the rest. n = m = 2, basis = {x1, x2}. */
+  function createReverseFromData(data, opts) {
+    var Binv = data.Binv, y = data.y, b = data.b;
+    var Bmatrix = Engine.invert(Binv);
+    var c = Engine.vecMat(y, Bmatrix);          // cᵀ = yᵀ·B  (all vars basic)
+    var xB = Engine.matVec(Binv, b);
+    var Z = Engine.dot(y, b);
+    var problem = { n: 2, m: 2, c: c, A: Bmatrix, b: b };
+    var r = { basis: [1, 2], Binv: Binv, Bmatrix: Bmatrix, A: Bmatrix,
+      y: y, c: c, xB: xB, Z: Z, b: b };
+    return buildReverseSessionFromR(problem, r, opts);
   }
 
   function submitQuiz(s, id) {
@@ -752,6 +772,44 @@
     return s;
   }
 
+  /* ---- guided drill: a declarative quiz/fill sequence (homework 9 Q6) ---- */
+
+  function buildGuidedSteps(specs) {
+    return specs.map(function (sp) {
+      if (sp.kind === 'quiz') return dualityQuiz(sp.key, sp.question, sp.options, sp.correct, sp.why);
+      if (sp.kind === 'scalar') return sensScalar(sp.key, sp.label, sp.correct, { why: sp.why, scratchPreset: sp.scratchPreset });
+      if (sp.kind === 'grid') return sensGrid(sp.key, sp.label, sp.dims, sp.correct, { why: sp.why, colLabels: sp.colLabels, rowLabels: sp.rowLabels });
+      throw new Error('unknown guided step kind: ' + sp.kind);
+    });
+  }
+
+  function createGuidedSession(exercise, opts) {
+    opts = opts || {};
+    var s = {
+      problem: exercise.problem || { n: 0, m: 0, c: [], A: [], b: [] },
+      mode: 'guided',
+      examMode: !!opts.examMode,
+      phase: 'guided',
+      status: 'in-progress',
+      iterIndex: -1,
+      guided: { intro: exercise.intro, conclusion: exercise.conclusion, title: exercise.title },
+      canonical: null,
+      iterations: [],
+      stepQueue: [],
+      stepIndex: 0,
+      substage: null,
+      history: [],
+      helpLog: [],
+      autoLog: [],
+      errorLog: [],
+      elapsedMs: 0,
+      finalResult: null,
+    };
+    s.stepQueue = buildGuidedSteps(exercise.steps);
+    s.substage = initialSubstage(s.stepQueue[0]);
+    return s;
+  }
+
   function createSession(problem, opts) {
     opts = opts || {};
     var full = Engine.buildFullProblem(problem);
@@ -775,10 +833,17 @@
       autoLog: [],               // auto-computed algebra (NOT counted as help)
       errorLog: [],              // {phase, iter, key} — one per wrong submission
       elapsedMs: 0,              // accumulated across resumes (exam mode)
+      maxIters: opts.maxIters != null ? opts.maxIters : null,  // stop after N iters (targil-8 mid-run)
       finalResult: null,
     };
-    s.stepQueue = buildSetupSteps(s);
-    s.substage = initialSubstage(s.stepQueue[0]);
+    if (opts.startBasis) {
+      // start mid-run from a given basis (skip the setup phase entirely)
+      var st0 = optStateFromBasis(problem, opts.startBasis);
+      startIteration(s, { B: st0.B, N: st0.N, Binv: st0.Binv, cB: st0.cB, cN: st0.cN });
+    } else {
+      s.stepQueue = buildSetupSteps(s);
+      s.substage = initialSubstage(s.stepQueue[0]);
+    }
     return s;
   }
 
@@ -860,6 +925,12 @@
       s.finalResult = { sens: s.sens.result };
       return;
     }
+    if (s.mode === 'guided') {
+      s.status = 'guided-done';
+      s.phase = 'done';
+      s.finalResult = { guided: s.guided };
+      return;
+    }
     if (s.phase === 'setup') {
       startIteration(s, s.setupCanonical);
       return;
@@ -875,9 +946,17 @@
       s.finalResult = { enteringVar: c.q, nBarQ: c.nBarQ.slice(), Z: c.Z, B: c.given.B.slice() };
     } else {
       s.history.push({ iter: s.iterIndex, Z: c.Z, entering: c.q, leaving: c.p });
-      startIteration(s, {
-        B: c.nextB, N: c.nextN, Binv: c.nextBinv, cB: c.nextCB, cN: c.nextCN,
-      });
+      var nextGiven = { B: c.nextB, N: c.nextN, Binv: c.nextBinv, cB: c.nextCB, cN: c.nextCN };
+      if (s.maxIters != null && (s.iterIndex + 1) >= s.maxIters) {
+        // targil-8 mid-run: stop after the requested number of iterations
+        var nxB = Engine.computeXB(c.nextBinv, s.problem.b);
+        s.status = 'partial';
+        s.phase = 'done';
+        s.finalResult = { partial: true, iterations: s.iterIndex + 1, given: nextGiven,
+          xB: nxB, Z: Engine.computeZ(c.nextCB, nxB), entering: c.q, leaving: c.p };
+        return;
+      }
+      startIteration(s, nextGiven);
     }
   }
 
@@ -1239,9 +1318,11 @@
     QUANTITIES: QUANTITIES,
     createSession: createSession,
     createReverseSession: createReverseSession,
+    createReverseFromData: createReverseFromData,
     createDualitySession: createDualitySession,
     createDualSimplexSession: createDualSimplexSession,
     createSensitivitySession: createSensitivitySession,
+    createGuidedSession: createGuidedSession,
     optStateFromBasis: optStateFromBasis,
     getCurrent: getCurrent,
     submitStepRecall: submitStepRecall,
