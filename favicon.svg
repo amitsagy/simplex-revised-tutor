@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Revised Simplex tutor">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="url(#bg)"/>
+  <!-- feasible region (convex polytope) -->
+  <path d="M6 24.5 L7.5 14 L16 7.5 L24.5 13.5 L22 24.5 Z"
+        fill="#ffffff" fill-opacity="0.92"/>
+  <!-- the two edges meeting at the optimal corner, emphasized -->
+  <path d="M7.5 14 L16 7.5 L24.5 13.5"
+        fill="none" stroke="#f59e0b" stroke-width="1.6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- optimal basic feasible solution (the maximizing vertex) -->
+  <circle cx="16" cy="7.5" r="3.4" fill="#f59e0b" stroke="#ffffff" stroke-width="1.4"/>
+</svg>
