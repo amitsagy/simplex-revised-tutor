@@ -18,6 +18,7 @@
   var Parse = isNode ? require('./parse.js') : window.Simplex.parse;
   var Generator = isNode ? require('./generator.js') : window.Simplex.generator;
   var Duality = isNode ? require('./duality.js') : window.Simplex.duality;
+  var Tableau = isNode ? require('./tableau.js') : window.Simplex.tableau;
 
   /* NOTE: no "שלב N" numbering in the labels — the options are shuffled, and
    * a visible number would give the order away. */
@@ -198,7 +199,8 @@
     if (!step) return null;
     if (step.kind === 'quantity') {
       if (step.qtype === 'scalar') return 'fill';
-      if (step.noRecall) return 'dims';   // reverse drill: the prompt names the quantity
+      if (step.directFill) return 'fill';  // prompt fully specifies shape (dual-simplex tableau/ratios)
+      if (step.noRecall) return 'dims';    // reverse/duality: name given, but declare dimensions
       return 'recall';
     }
     return 'choose';
@@ -439,6 +441,115 @@
     return s;
   }
 
+  /* ---- dual-simplex drill (targil 10): solve a Min problem by dual simplex ---- */
+
+  function tblName(t, id) { return t.names[t.vars.indexOf(id)]; }
+
+  function buildDsimSteps(s, first) {
+    var cur = s.tableau;
+    var dc = s.dsCanon;
+    var steps = [];
+
+    if (first) {
+      steps.push(dualityQuiz('ds-first',
+        'בסימפלקס דואלי — <b>מה בוחרים קודם</b> בכל איטרציה?',
+        [{ id: 'leaving', label: 'קודם את המשתנה היוצא (ה-RHS השלילי ביותר)' },
+          { id: 'entering', label: 'קודם את המשתנה הנכנס' }],
+        'leaving',
+        'זה ההבדל המרכזי מהסימפלקס הרגיל: כאן בוחרים קודם את המשתנה היוצא — השורה עם ה-RHS השלילי ביותר — ורק אחר כך את הנכנס לפי מבחן היחס.'));
+    }
+
+    steps.push(dualityQuiz('ds-leaving',
+      'איזה משתנה <b>יוצא</b> מהבסיס?',
+      cur.basis.map(function (id) { return { id: id, label: tblName(cur, id) }; }),
+      dc.leaveVar,
+      'בוחרים את המשתנה הבסיסי בשורה עם ה-RHS השלילי ביותר: כאן ' + tblName(cur, dc.leaveVar) +
+      ' (RHS = ' + Parse.formatNumber(cur.rhs[dc.leaveRow]) + ').'));
+
+    steps.push({ kind: 'quantity', key: 'ds-ratios', quantityId: 'ds-ratios', qtype: 'ratios',
+      correct: dc.ratios.slice(), directFill: true, rowLabels: cur.names.slice(),
+      label: 'מבחן היחס',
+      ratioPrompt: 'בשורת המשתנה היוצא (' + tblName(cur, dc.leaveVar) +
+        ') חשב בכל עמודה |מקדם שורת ה-Z ÷ מקדם השורה| — רק כאשר מקדם השורה שלילי. בעמודות האחרות סמן "-".',
+      why: 'מבחן היחס הדואלי: המינימום, על העמודות שבהן מקדם שורת היוצא שלילי, של |r_k ÷ a_k|. הבחירה הזו שומרת על אי-חיוביות שורת ה-Z (כלומר על האופטימליות).' });
+
+    var candVars = [];
+    dc.ratios.forEach(function (r, k) { if (r !== null) candVars.push(cur.vars[k]); });
+    steps.push(dualityQuiz('ds-entering',
+      'איזה משתנה <b>נכנס</b> לבסיס? (העמודה עם היחס הקטן ביותר)',
+      candVars.map(function (id) { return { id: id, label: tblName(cur, id) }; }),
+      dc.enterVar,
+      'המשתנה בעמודה עם היחס הקטן ביותר במבחן היחס נכנס — כאן ' + tblName(cur, dc.enterVar) + '.'));
+
+    var next = dc.next;
+    var gridCorrect = [next.zRow.concat([next.zRHS])].concat(
+      next.rows.map(function (r, i) { return r.concat([next.rhs[i]]); }));
+    steps.push({ kind: 'quantity', key: 'ds-tableau', quantityId: 'ds-tableau', qtype: 'grid',
+      dims: [next.m + 1, next.ncols + 1], correct: gridCorrect, directFill: true, autoFill: true,
+      colLabels: next.names.concat(['RHS']),
+      rowLabels: ['Z'].concat(next.basis.map(function (id) { return tblName(next, id); })),
+      label: 'הטבלה החדשה (אחרי הפיבוט)',
+      why: 'מבצעים פיבוט על העמודה הנכנסת בשורת היוצאת: פעולות שורה שמביאות את איבר הציר ל-1 ומאפסות את שאר העמודה — כולל בשורת ה-Z.' });
+
+    steps.push(dualityQuiz('ds-feasible',
+      'הסתכל על עמודת ה-RHS החדשה: <b>האם הפתרון ישים כעת?</b>',
+      [{ id: 'stop', label: 'כן — כל ה-RHS אי-שליליים, עוצרים (אופטימלי)' },
+        { id: 'continue', label: 'לא — נדרשת עוד איטרציה' }],
+      dc.feasibleAfter ? 'stop' : 'continue',
+      dc.feasibleAfter
+        ? 'כל רכיבי ה-RHS אי-שליליים — הפתרון ישים, ומכיוון ששורת ה-Z נשארה אי-חיובית הוא גם אופטימלי.'
+        : 'עדיין קיים RHS שלילי — הפתרון אינו ישים, ממשיכים לאיטרציה נוספת.'));
+
+    return steps;
+  }
+
+  function startDsimIteration(s, first) {
+    s.phase = 'dsim';
+    s.iterIndex++;
+    var cur = s.tableau;
+    var lv = Tableau.dsLeaving(cur);
+    var ratios = Tableau.dsRatios(cur, lv.row);
+    var en = Tableau.dsEntering(cur, ratios);
+    var next = Tableau.dsPivot(cur, lv.row, en.col);
+    s.dsCanon = {
+      leaveRow: lv.row, leaveVar: lv.varId, ratios: ratios,
+      enterCol: en.col, enterVar: en.varId, next: next,
+      feasibleAfter: Tableau.isFeasible(next),
+    };
+    s.stepQueue = buildDsimSteps(s, first);
+    s.stepIndex = 0;
+    s.substage = initialSubstage(getCurrent(s));
+  }
+
+  function createDualSimplexSession(minProblem, opts) {
+    opts = opts || {};
+    var s = {
+      problem: { n: minProblem.n, m: minProblem.m, c: minProblem.c, A: minProblem.A, b: minProblem.b },
+      mode: 'dualsimplex',
+      examMode: !!opts.examMode,
+      phase: 'dsim',
+      status: 'in-progress',
+      iterIndex: -1,
+      dsim: { minProblem: minProblem },
+      tableau: Tableau.initialDualTableau(minProblem),
+      dsCanon: null,
+      dsHistory: [],
+      canonical: null,
+      iterations: [],
+      stepQueue: [],
+      stepIndex: 0,
+      substage: null,
+      history: [],
+      helpLog: [],
+      autoLog: [],
+      errorLog: [],
+      elapsedMs: 0,
+      finalResult: null,
+    };
+    startDsimIteration(s, true);
+    return s;
+  }
+
   function createSession(problem, opts) {
     opts = opts || {};
     var full = Engine.buildFullProblem(problem);
@@ -526,6 +637,19 @@
       s.status = 'duality-done';
       s.phase = 'done';
       s.finalResult = { duality: s.duality };
+      return;
+    }
+    if (s.mode === 'dualsimplex') {
+      s.dsHistory.push({ iter: s.iterIndex, leaving: s.dsCanon.leaveVar,
+        entering: s.dsCanon.enterVar, Z: s.dsCanon.next.zRHS });
+      s.tableau = s.dsCanon.next;
+      if (s.dsCanon.feasibleAfter) {
+        s.status = 'dsim-done';
+        s.phase = 'done';
+        s.finalResult = { tableau: s.tableau, solution: Tableau.solution(s.tableau) };
+      } else {
+        startDsimIteration(s, false);
+      }
       return;
     }
     if (s.phase === 'setup') {
@@ -908,6 +1032,7 @@
     createSession: createSession,
     createReverseSession: createReverseSession,
     createDualitySession: createDualitySession,
+    createDualSimplexSession: createDualSimplexSession,
     getCurrent: getCurrent,
     submitStepRecall: submitStepRecall,
     submitQuiz: submitQuiz,

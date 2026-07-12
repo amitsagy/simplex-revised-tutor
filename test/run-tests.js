@@ -16,6 +16,7 @@ var Engine = require(path.join(__dirname, '../js/engine.js'));
 var Session = require(path.join(__dirname, '../js/session.js'));
 var Generator = require(path.join(__dirname, '../js/generator.js'));
 var Duality = require(path.join(__dirname, '../js/duality.js'));
+var Tableau = require(path.join(__dirname, '../js/tableau.js'));
 var Exercises = require(path.join(__dirname, '../js/exercises.js'));
 var wyndor = require(path.join(__dirname, 'fixtures/wyndor.js'));
 var hw1a = require(path.join(__dirname, 'fixtures/hw1a.js'));
@@ -577,6 +578,90 @@ function eqIntVecStr(a, b) {
   Session.submitQuiz(s2, Session.getCurrent(s2).correct); // dual-dir
   var revived = JSON.parse(JSON.stringify(s2));
   check('duality-walk: round-trip equal', JSON.stringify(revived) === JSON.stringify(s2));
+})();
+
+/* ---------- dual simplex + tableau (targil 10) ---------- */
+
+(function () {
+  var prob = Exercises.byId['t10-ex1'].data;   // dual of the glass problem
+  var t = Tableau.initialDualTableau(prob);
+  check('dsim initial zRow', eqVec(t.zRow, [-4, -12, -18, 0, 0]), show(t.zRow));
+  check('dsim initial rhs (−b, infeasible)', eqVec(t.rhs, [-3, -5]), show(t.rhs));
+  check('dsim initial basis = surplus', eqIntVec(t.basis, [4, 5]), show(t.basis));
+
+  var lv = Tableau.dsLeaving(t);
+  check('dsim leaving 1 = e2 (most neg RHS)', lv.varId === 5 && lv.row === 1, show(lv));
+  var ratios = Tableau.dsRatios(t, lv.row);
+  check('dsim ratios 1', ratios[1] === 6 && ratios[2] === 9 && ratios[0] === null, show(ratios));
+  var en = Tableau.dsEntering(t, ratios);
+  check('dsim entering 1 = y2 (min ratio)', en.varId === 2, show(en));
+  var t2 = Tableau.dsPivot(t, lv.row, en.col);
+  check('dsim iter1 zRow', eqVec(t2.zRow, [-4, 0, -6, 0, -6]), show(t2.zRow));
+  check('dsim iter1 zRHS = 30', eqNum(t2.zRHS, 30), String(t2.zRHS));
+
+  var res = Tableau.solveDual(t, 8);
+  check('dsim optimal in 2 pivots', res.status === 'optimal' && res.iterations === 2,
+    res.status + '/' + res.iterations);
+  var sol = Tableau.solution(res.tableau);
+  check('dsim Z* = 36', eqNum(sol.Z, 36), String(sol.Z));
+  check('dsim solution y = (0, 3/2, 1)', eqVec(sol.y, [0, 1.5, 1]), show(sol.y));
+  check('dsim all tableau values nice', Generator.allNice(res.allValues));
+})();
+
+// generator: dual-simplex problems solve cleanly in 2–4 pivots
+(function () {
+  var bad = 0, found = 0;
+  for (var seed = 1; seed <= 20; seed++) {
+    var mp = Generator.generateDualSimplexProblem({ seed: seed * 3301 });
+    if (!mp) { bad++; continue; }
+    found++;
+    var sim = Tableau.solveDual(Tableau.initialDualTableau(mp), 6);
+    if (sim.status !== 'optimal' || sim.iterations < 2 || sim.iterations > 4 ||
+        !Generator.allNice(sim.allValues)) bad++;
+  }
+  check('dsim generator: 20 seeds valid', bad === 0, 'bad=' + bad);
+  check('dsim generator: found problems', found >= 15, 'found=' + found);
+})();
+
+// full dual-simplex session walk with canonical answers
+(function () {
+  var prob = Exercises.byId['t10-ex1'].data;
+  var s = Session.createDualSimplexSession(prob);
+  check('dsim-walk: mode', s.mode === 'dualsimplex' && s.phase === 'dsim');
+  var guard = 0;
+  while (s.status === 'in-progress' && guard++ < 100) {
+    var st = Session.getCurrent(s);
+    var res;
+    if (st.kind === 'quiz') {
+      res = Session.submitQuiz(s, st.correct);
+      check('dsim-walk: quiz ' + st.key, res.ok);
+    } else if (st.qtype === 'ratios') {
+      res = Session.submitRatios(s, st.correct.map(function (v) { return v === null ? '-' : Parse.formatNumber(v); }));
+      check('dsim-walk: ratios ' + st.key, res.ok);
+    } else if (st.qtype === 'grid') {
+      res = Session.submitGrid(s, st.correct.map(function (r) { return r.map(Parse.formatNumber); }));
+      check('dsim-walk: grid ' + st.key, res.ok);
+    } else {
+      check('dsim-walk: unexpected step ' + st.key + '/' + s.substage, false);
+      break;
+    }
+  }
+  check('dsim-walk: completed', s.status === 'dsim-done' && guard < 100, s.status);
+  check('dsim-walk: final Z = 36', eqNum(s.finalResult.solution.Z, 36), String(s.finalResult.solution.Z));
+  check('dsim-walk: two iterations', s.dsHistory.length === 2, String(s.dsHistory.length));
+  // round-trip mid-walk (plain JSON — the tableau is data-only)
+  var s2 = Session.createDualSimplexSession(prob);
+  Session.submitQuiz(s2, Session.getCurrent(s2).correct);
+  var revived = JSON.parse(JSON.stringify(s2));
+  check('dsim-walk: round-trip equal', JSON.stringify(revived) === JSON.stringify(s2));
+  var g2 = 0;
+  while (revived.status === 'in-progress' && g2++ < 100) {
+    var stx = Session.getCurrent(revived);
+    if (stx.kind === 'quiz') Session.submitQuiz(revived, stx.correct);
+    else if (stx.qtype === 'ratios') Session.submitRatios(revived, stx.correct.map(function (v) { return v === null ? '-' : Parse.formatNumber(v); }));
+    else Session.submitGrid(revived, stx.correct.map(function (r) { return r.map(Parse.formatNumber); }));
+  }
+  check('dsim-walk: revived completes', revived.status === 'dsim-done');
 })();
 
 /* ---------- summary ---------- */

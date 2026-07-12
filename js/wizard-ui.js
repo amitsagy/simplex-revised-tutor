@@ -65,6 +65,8 @@
   function fmt(x) { return Parse.formatNumber(x); }
   function varSub(v) { return 'x<sub>' + v + '</sub>'; }
   function varLabels(list) { return list.map(varSub); }
+  /** A label that is a variable index -> x-subscript; a string -> as-is. */
+  function labelToken(x) { return typeof x === 'number' ? varSub(x) : x; }
   function chipHTML(list) {
     return '<span class="ltr-math chip-set">{' + list.map(varSub).join(', ') + '}</span>';
   }
@@ -194,6 +196,7 @@
     fwd.disabled = !timeline.future.length;
     var pos = session.mode === 'reverse' ? 'שחזור'
       : session.mode === 'duality' ? 'דואליות'
+      : session.mode === 'dualsimplex' ? 'סימפלקס דואלי · איטרציה ' + (session.iterIndex + 1)
       : session.phase === 'setup' ? 'הקמה'
       : session.phase === 'done' ? 'סיום'
       : 'איטרציה ' + (session.iterIndex + 1);
@@ -350,9 +353,70 @@
       '<div class="formulation ltr-math">' + lines.join('<br>') + '</div></div>';
   }
 
+  /* A full tableau (Z row + basis rows + RHS). opts.highlightRow marks the
+   * leaving row; opts.title labels it. */
+  function tableauHTML(t, opts) {
+    opts = opts || {};
+    var h = '<div class="mini-matrix-wrap">';
+    if (opts.title) h += '<div class="mini-label">' + opts.title + '</div>';
+    h += '<table class="mini-matrix ref-table ltr-math"><tr><th></th>';
+    t.names.forEach(function (nm, k) {
+      h += '<th class="' + (k < t.n ? 'orig' : 'slack') + '">' + nm + '</th>';
+    });
+    h += '<th class="bcol">RHS</th></tr>';
+    h += '<tr><th>Z</th>';
+    t.zRow.forEach(function (v) { h += '<td>' + fmt(v) + '</td>'; });
+    h += '<td class="bcol">' + fmt(t.zRHS) + '</td></tr>';
+    t.rows.forEach(function (row, i) {
+      var cls = (opts.highlightRow === i) ? ' class="leaving-row"' : '';
+      h += '<tr' + cls + '><th>' + t.names[t.vars.indexOf(t.basis[i])] + '</th>';
+      row.forEach(function (v) { h += '<td>' + fmt(v) + '</td>'; });
+      h += '<td class="bcol">' + fmt(t.rhs[i]) + '</td></tr>';
+    });
+    h += '</table></div>';
+    return h;
+  }
+
+  /* Dual-simplex: show the Min problem being solved. */
+  function dsimGivenHTML() {
+    var mp = session.dsim.minProblem;
+    var ctypes = [], vtypes = [];
+    for (var i = 0; i < mp.m; i++) ctypes.push('ge');
+    for (var j = 0; j < mp.n; j++) vtypes.push('ge0');
+    var spec = { dir: 'min', c: mp.c, A: mp.A, b: mp.b, ctypes: ctypes, vtypes: vtypes };
+    var h = '<h2>⚙️ סימפלקס דואלי</h2>';
+    h += '<p>פותרים את בעיית המינימום הבאה בשיטת הסימפלקס הדואלי — בכל איטרציה בוחרים ' +
+      '<b>קודם את המשתנה היוצא</b> (ה-RHS השלילי ביותר), ואז את הנכנס במבחן היחס.</p>';
+    h += '<div class="ref-cols"><div><div class="mini-label">הבעיה</div>' +
+      generalFormulationHTML(spec, 'y') + '</div></div>';
+    els.problemRef.innerHTML = h;
+  }
+
+  function dsimWorkspaceHTML() {
+    var dc = session.dsCanon;
+    var html = '<div class="card given"><h3>איטרציה ' + (session.iterIndex + 1) + ' — הטבלה הנוכחית</h3>';
+    html += tableauHTML(session.tableau, { highlightRow: dc ? dc.leaveRow : -1 });
+    html += '</div>';
+    if (session.dsHistory && session.dsHistory.length) {
+      html += '<div class="card history"><h3>איטרציות שהושלמו</h3><ul>';
+      session.dsHistory.forEach(function (hh) {
+        html += '<li>איטרציה ' + (hh.iter + 1) + ': יצא ' + dsVarName(hh.leaving) +
+          ' · נכנס ' + dsVarName(hh.entering) + ' · <span class="ltr-math">Z = ' + fmt(hh.Z) + '</span></li>';
+      });
+      html += '</ul></div>';
+    }
+    return html;
+  }
+  function dsVarName(id) {
+    var t = session.tableau;
+    var i = t.vars.indexOf(id);
+    return i >= 0 ? t.names[i] : String(id);
+  }
+
   function renderProblemRef() {
     if (session.mode === 'reverse') { reverseGivenHTML(); return; }
     if (session.mode === 'duality') { dualityGivenHTML(); return; }
+    if (session.mode === 'dualsimplex') { dsimGivenHTML(); return; }
     var p = session.problem;
     var html = '<h2>התרגיל</h2><div class="ref-cols"><div class="formulation ltr-math">';
     html += 'Max Z = ' + linComb(p.c) + '<br>s.t.<br>';
@@ -407,8 +471,9 @@
     // are literal strings, rowLabels are variable indices.
     if (session.mode !== 'forward') {
       var out = {};
-      if (st.rowLabels) out.rowLabels = varLabels(st.rowLabels);
-      if (st.colLabels) out.colLabels = st.colLabels;
+      // rowLabels/colLabels may be variable indices (numbers) or literal strings
+      if (st.rowLabels) out.rowLabels = st.rowLabels.map(labelToken);
+      if (st.colLabels) out.colLabels = st.colLabels.map(labelToken);
       return out;
     }
     var c = session.canonical;
@@ -438,6 +503,10 @@
       var lbl = stepLabel(st);
       if (st.qtype === 'scalar') return '<div class="done-item ltr-math">' + lbl + ' = ' + fmt(st.correct) + '</div>';
       var rlabels = gridLabelsFor(st);
+      if (st.qtype === 'ratios') {
+        var disp = st.correct.map(function (v) { return [v === null ? '—' : v]; });
+        return matrixHTML(disp, { label: lbl, rowLabels: rlabels.rowLabels });
+      }
       return matrixHTML(st.correct, { label: lbl, colLabels: rlabels.colLabels, rowLabels: rlabels.rowLabels });
     }
     if (st.kind === 'decision') {
@@ -497,6 +566,10 @@
       els.workspace.innerHTML = dualitySoFarHTML();
       return;
     }
+    if (session.mode === 'dualsimplex') {
+      els.workspace.innerHTML = dsimWorkspaceHTML();
+      return;
+    }
     if (session.phase === 'iter') {
       var g = session.canonical.given;
       html += '<div class="card given"><h3>איטרציה ' + (session.iterIndex + 1) +
@@ -537,9 +610,11 @@
       ? '🔍 שחזור הבעיה'
       : session.mode === 'duality'
         ? '🔄 בניית הבעיה הדואלית'
-        : session.phase === 'setup'
-          ? '🚀 פתיחת התרגיל'
-          : '🔁 איטרציה ' + (session.iterIndex + 1);
+        : session.mode === 'dualsimplex'
+          ? '⚙️ סימפלקס דואלי · איטרציה ' + (session.iterIndex + 1)
+          : session.phase === 'setup'
+            ? '🚀 פתיחת התרגיל'
+            : '🔁 איטרציה ' + (session.iterIndex + 1);
     card.appendChild(el('h3', 'prompt-title', title));
 
     var applyReveal;
@@ -719,16 +794,18 @@
 
   function renderRatiosFill(card, st) {
     var why = Session.getWhyForCurrent(session);
-    var g = session.canonical.given;
-    card.appendChild(el('p', 'prompt-q',
-      'בצע את <b>מבחן היחס</b>: חשב (xB)<sub>i</sub>/(n̄q)<sub>i</sub> בכל שורה מתאימה. ' +
-      'בשורה ללא יחס תקף סמן "<span class="ltr-math">-</span>".'));
+    var rowLabels = st.rowLabels
+      ? st.rowLabels.map(labelToken)
+      : varLabels(session.canonical.given.B);
+    card.appendChild(el('p', 'prompt-q', st.ratioPrompt ||
+      ('בצע את <b>מבחן היחס</b>: חשב (xB)<sub>i</sub>/(n̄q)<sub>i</sub> בכל שורה מתאימה. ' +
+        'בשורה ללא יחס תקף סמן "<span class="ltr-math">-</span>".')));
     var box = el('div', 'fill-box');
     card.appendChild(box);
     var grid = MI.create(box, {
       rows: st.correct.length,
       cols: 1,
-      rowLabels: varLabels(g.B),
+      rowLabels: rowLabels,
       onEnter: doCheck,
     });
     box.appendChild(btn('בדוק', 'btn primary', doCheck));
@@ -860,7 +937,7 @@
       onEnter: doCheck,
     });
     gridBox.appendChild(btn('בדוק', 'btn primary', doCheck));
-    if ((st.quantityId === 'Binv' || st.inverseCalc) && !session.examMode) {
+    if ((st.quantityId === 'Binv' || st.inverseCalc || st.autoFill) && !session.examMode) {
       // Pure algebra — a one-click final answer that is NOT counted as help.
       gridBox.appendChild(btn('⚡ חשב עבורי (דירוג אוטומטי)', 'btn auto-btn', function () {
         grid.setStrings(st.correct.map(function (row) { return row.map(fmt); }));
@@ -1121,7 +1198,37 @@
     if (examTicker) { clearInterval(examTicker); examTicker = null; }
     if (session.mode === 'reverse') { renderReverseFinal(); return; }
     if (session.mode === 'duality') { renderDualityFinal(); return; }
+    if (session.mode === 'dualsimplex') { renderDsimFinal(); return; }
     renderFinalBody();
+  }
+
+  function renderDsimFinal() {
+    var f = session.finalResult;
+    var sol = f.solution;
+    var mp = session.dsim.minProblem;
+    var card = el('div', 'card final');
+    card.appendChild(el('h2', null, '🎉 הגעת לפתרון האופטימלי (סימפלקס דואלי)'));
+    card.appendChild(el('p', 'big-z ltr-math', 'Z* = ' + fmt(sol.Z)));
+    var yparts = sol.y.map(function (v, i) { return 'y<sub>' + (i + 1) + '</sub> = ' + fmt(v); });
+    card.appendChild(el('p', 'ltr-math', yparts.join(' , ')));
+    card.appendChild(el('div', null, tableauHTML(f.tableau, { title: 'הטבלה הסופית (ישימה ואופטימלית)' })));
+    card.appendChild(el('p', 'shadow-note',
+      'הפתרון ישים (כל ה-RHS ≥ 0) ואופטימלי (שורת ה-Z ≤ 0). מתכונת הדואליות החזקה, ' +
+      'ערך היעד כאן שווה לערך היעד של הבעיה הפרימלית המתאימה.'));
+    if (session.examMode) {
+      renderExamSummary(card);
+    } else {
+      var hs = Session.helpSummary(session);
+      if (hs.length) card.appendChild(el('p', 'help-tip', 'נעזרת ברמזים ב-' + hs.length + ' שלבים.'));
+      else card.appendChild(el('p', 'no-help', 'פתרת בלי עזרה — מצוין! 💪'));
+      var autos = Session.autoSummary(session);
+      if (autos.length) {
+        card.appendChild(el('p', 'auto-note',
+          '⚡ טבלאות שחושבו אוטומטית (בחירה לגיטימית): ' + autos.length));
+      }
+    }
+    card.appendChild(btn('תרגיל חדש', 'btn primary big', function () { onNewProblemCb(); }));
+    els.prompt.appendChild(card);
   }
 
   function renderDualityFinal() {

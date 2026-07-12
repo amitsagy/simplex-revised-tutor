@@ -12,6 +12,7 @@
   var isNode = typeof module !== 'undefined' && module.exports;
   var Engine = isNode ? require('./engine.js') : window.Simplex.engine;
   var Duality = isNode ? require('./duality.js') : window.Simplex.duality;
+  var Tableau = isNode ? require('./tableau.js') : window.Simplex.tableau;
 
   /* --- seedable RNG --- */
   function makeRng(seed) {
@@ -218,6 +219,29 @@
     return { dir: 'max', n: n, m: m, c: c, A: A, b: b, ctypes: ctypes, vtypes: vtypes };
   }
 
+  /**
+   * Dual-simplex drill (targil 10): take a nice optimal Max problem, form its
+   * dual (Min b·y s.t. Aᵀy ≥ c, y ≥ 0), and keep it only if the dual simplex
+   * solves it in 2–4 pivots with nice tableau values. Returns the Min problem
+   * { n, m, c, A, b } (all-≥ constraints) or null.
+   */
+  function generateDualSimplexProblem(opts) {
+    opts = opts || {};
+    var base = opts.seed || 1;
+    for (var t = 0; t < 40; t++) {
+      var p = generateProblem({ seed: base + t * 101, wantUnbounded: false, minIters: 2, maxIters: 4 });
+      if (!p) continue;
+      var minProblem = { n: p.m, m: p.n, c: p.b.slice(), A: Duality.transpose(p.A), b: p.c.slice() };
+      var sim = Tableau.solveDual(Tableau.initialDualTableau(minProblem), 6);
+      if (sim.status !== 'optimal') continue;
+      if (sim.iterations < 2 || sim.iterations > 4) continue;
+      if (!allNice(sim.allValues)) continue;
+      minProblem._sim = { iterations: sim.iterations };
+      return minProblem;
+    }
+    return null;
+  }
+
   var api = {
     makeRng: makeRng,
     isNice: isNice,
@@ -226,6 +250,7 @@
     generateProblem: generateProblem,
     generateReverseProblem: generateReverseProblem,
     generateDualityProblem: generateDualityProblem,
+    generateDualSimplexProblem: generateDualSimplexProblem,
   };
 
   if (typeof window !== 'undefined') {
