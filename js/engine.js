@@ -96,6 +96,24 @@
     });
   }
 
+  /** Inverse of a square matrix via Gauss-Jordan on [M | I] (reuses row-reduce
+   *  so it agrees with the rest of the pipeline). Used to reconstruct B⁻¹ from
+   *  a stored optimal basis in the sensitivity drills. */
+  function invert(M) {
+    var n = M.length;
+    var aug = M.map(function (row, i) {
+      var idr = [];
+      for (var j = 0; j < n; j++) idr.push(i === j ? 1 : 0);
+      return row.concat(idr);
+    });
+    var op = RowReduce.nextRrefOp(aug, n), guard = 0;
+    while (op && guard++ < 500) {
+      aug = RowReduce.applyRowOp(aug, op);
+      op = RowReduce.nextRrefOp(aug, n);
+    }
+    return aug.map(function (row) { return row.slice(n); });
+  }
+
   function computeNMatrix(AFull, N) {
     return computeBMatrix(AFull, N);
   }
@@ -238,6 +256,7 @@
     dot: dot,
     matMul: matMul,
     computeBMatrix: computeBMatrix,
+    invert: invert,
     computeNMatrix: computeNMatrix,
     computeXB: computeXB,
     computeZ: computeZ,

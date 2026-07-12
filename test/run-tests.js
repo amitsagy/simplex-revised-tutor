@@ -664,6 +664,69 @@ function eqIntVecStr(a, b) {
   check('dsim-walk: revived completes', revived.status === 'dsim-done');
 })();
 
+/* ---------- sensitivity analysis (targil 10) ---------- */
+
+// engine matrix inverse (used to reconstruct B⁻¹ from a stored basis)
+(function () {
+  var inv = Engine.invert([[3, -1, 0], [-2, 4, 0], [-4, 3, 1]]);
+  check('engine invert (hw10-q3 B)', eqMat(inv, [[2 / 5, 1 / 10, 0], [1 / 5, 3 / 10, 0], [1, -1 / 2, 1]]), show(inv));
+  var i2 = Engine.invert([[2, 0], [0, 2]]);
+  check('engine invert diagonal', eqMat(i2, [[0.5, 0], [0, 0.5]]), show(i2));
+})();
+
+function walkSensitivity(ex) {
+  var s = Session.createSensitivitySession(ex.data);
+  var guard = 0;
+  while (s.status === 'in-progress' && guard++ < 60) {
+    var st = Session.getCurrent(s);
+    if (st.kind === 'quiz') Session.submitQuiz(s, st.correct);
+    else if (st.qtype === 'grid') Session.submitGrid(s, st.correct.map(function (r) { return r.map(Parse.formatNumber); }));
+    else if (st.qtype === 'scalar') Session.submitScalar(s, Parse.formatNumber(st.correct));
+    else { check('sens-walk unexpected ' + st.key, false); break; }
+  }
+  check('sens ' + ex.id + ': done', s.status === 'sensitivity-done' && guard < 60, s.status);
+  return s;
+}
+
+(function () {
+  // optStateFromBasis reproduces the handout's optimal state
+  var opt = Session.optStateFromBasis(Exercises.byId['t10-ex3'].data.problem, [3, 2, 1]);
+  check('sens opt: xB (glass)', eqVec(opt.xB, [2, 6, 2]), show(opt.xB));
+  check('sens opt: y (glass shadow prices)', eqVec(opt.y, [0, 1.5, 1]), show(opt.y));
+
+  // db-max (targil 2): b1 may decrease by at most 2
+  var s2 = walkSensitivity(Exercises.byId['t10-ex2']);
+  check('sens ex2: max decrease 2', s2.finalResult.sens.conclusion.indexOf('הוא 2') >= 0, s2.finalResult.sens.conclusion);
+
+  // dc-basic (targil 3): rN=(-7/6,-4/3), Z=38, stays optimal
+  var s3 = walkSensitivity(Exercises.byId['t10-ex3']);
+  check('sens ex3: Z=38 & optimal', s3.finalResult.sens.conclusion.indexOf('Z_new = 38') >= 0 &&
+    s3.finalResult.sens.conclusion.indexOf('נשאר אופטימלי') >= 0, s3.finalResult.sens.conclusion);
+
+  // new-var (targil 4): r=1, x3 leaves, Z=37
+  var s4 = walkSensitivity(Exercises.byId['t10-ex4']);
+  check('sens ex4: enters, x3 leaves, Z=37',
+    s4.finalResult.sens.conclusion.indexOf('יוצא x3') >= 0 &&
+    s4.finalResult.sens.conclusion.indexOf('Z = 37') >= 0, s4.finalResult.sens.conclusion);
+  check('sens ex4: Znew field', eqNum(s4.finalResult.sens.Znew, 37), String(s4.finalResult.sens.Znew));
+
+  // hw10-q3: read solution / shadow / dc-nonbasic-max / db
+  walkSensitivity(Exercises.byId['hw10-q3a']);
+  walkSensitivity(Exercises.byId['hw10-q3b']);
+  var s3c = walkSensitivity(Exercises.byId['hw10-q3c']);
+  check('sens q3c: c3 up by 12/5', s3c.finalResult.sens.conclusion.indexOf('12/5') >= 0, s3c.finalResult.sens.conclusion);
+  var s3d = walkSensitivity(Exercises.byId['hw10-q3d']);
+  check('sens q3d: xB_new feasible (19/5,22/5,12)',
+    s3d.finalResult.sens.conclusion.indexOf('19/5') >= 0 &&
+    s3d.finalResult.sens.conclusion.indexOf('נשאר ישים') >= 0, s3d.finalResult.sens.conclusion);
+
+  // round-trip a sensitivity session mid-walk
+  var sr = Session.createSensitivitySession(Exercises.byId['t10-ex3'].data);
+  Session.submitGrid(sr, Session.getCurrent(sr).correct.map(function (r) { return r.map(Parse.formatNumber); }));
+  var revived = JSON.parse(JSON.stringify(sr));
+  check('sens: round-trip equal', JSON.stringify(revived) === JSON.stringify(sr));
+})();
+
 /* ---------- summary ---------- */
 
 console.log('');

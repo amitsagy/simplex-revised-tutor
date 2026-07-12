@@ -197,6 +197,7 @@
     var pos = session.mode === 'reverse' ? 'שחזור'
       : session.mode === 'duality' ? 'דואליות'
       : session.mode === 'dualsimplex' ? 'סימפלקס דואלי · איטרציה ' + (session.iterIndex + 1)
+      : session.mode === 'sensitivity' ? 'ניתוח רגישות'
       : session.phase === 'setup' ? 'הקמה'
       : session.phase === 'done' ? 'סיום'
       : 'איטרציה ' + (session.iterIndex + 1);
@@ -413,10 +414,52 @@
     return i >= 0 ? t.names[i] : String(id);
   }
 
+  /* Sensitivity: describe the parameter change in words. */
+  function sensChangeText(ch) {
+    if (ch.kind === 'read-opt') return 'קריאת הפתרון האופטימלי' + (ch.shadow ? ' ומחירי הצל' : '') + ' מהטבלה.';
+    if (ch.kind === 'db') return 'שינוי אגף ימין: <span class="ltr-math">b → (' + ch.bNew.map(fmt).join(', ') + ')</span>.';
+    if (ch.kind === 'db-max') return 'עד כמה אפשר לשנות את <span class="ltr-math">b<sub>' + (ch.bIndex + 1) + '</sub></span> מבלי לשנות את הבסיס האופטימלי?';
+    if (ch.kind === 'dc-basic') return 'שינוי מקדם המטרה של משתנה <b>בסיסי</b>: <span class="ltr-math">c<sub>' + ch.varId + '</sub> → ' + fmt(ch.newC) + '</span>.';
+    if (ch.kind === 'dc-nonbasic') return ch.maxVariant
+      ? 'עד כמה אפשר להגדיל את <span class="ltr-math">c<sub>' + ch.varId + '</sub></span> (משתנה <b>לא-בסיסי</b>) מבלי לשנות את האופטימום?'
+      : 'שינוי מקדם המטרה של משתנה <b>לא-בסיסי</b>: <span class="ltr-math">c<sub>' + ch.varId + '</sub> → ' + fmt(ch.newC) + '</span>.';
+    if (ch.kind === 'new-var') return 'הוספת משתנה חדש: מקדם מטרה <span class="ltr-math">' + fmt(ch.cW) +
+      '</span> ועמודת אילוצים <span class="ltr-math">(' + ch.aW.map(fmt).join(', ') + ')</span>.';
+    return '';
+  }
+
+  function sensGivenHTML() {
+    var sn = session.sens;
+    var p = sn.problem;
+    var ctypes = [], vtypes = [];
+    for (var i = 0; i < p.m; i++) ctypes.push('le');
+    for (var j = 0; j < p.n; j++) vtypes.push('ge0');
+    var h = '<h2>🎛️ ניתוח רגישות</h2>';
+    h += '<div class="ref-cols"><div><div class="mini-label">הבעיה (נפתרה לאופטימום)</div>' +
+      generalFormulationHTML({ dir: 'max', c: p.c, A: p.A, b: p.b, ctypes: ctypes, vtypes: vtypes }, 'x') + '</div>';
+    h += '<div><div class="mini-label">השינוי הנבדק</div><div class="sens-change">' + sensChangeText(sn.change) + '</div></div></div>';
+    els.problemRef.innerHTML = h;
+  }
+
+  /* The optimal basis data the analysis leans on (B, B⁻¹, xB, yᵀ). */
+  function sensDataHTML() {
+    var o = session.sens.opt;
+    var h = '<div class="card given"><h3>נתוני הפתרון האופטימלי</h3>';
+    h += '<p>' + setEqHTML('B', o.B) + ' &nbsp;·&nbsp; ' + setEqHTML('N', o.N) + '</p>';
+    h += '<div class="mini-row">';
+    h += matrixHTML(o.Binv, { label: 'B⁻¹' });
+    h += matrixHTML(colVec(o.xB), { label: 'xB', rowLabels: varLabels(o.B) });
+    h += matrixHTML([o.y], { label: 'yᵀ' });
+    h += matrixHTML([o.rN], { label: 'rN', colLabels: varLabels(o.N) });
+    h += '</div></div>';
+    return h;
+  }
+
   function renderProblemRef() {
     if (session.mode === 'reverse') { reverseGivenHTML(); return; }
     if (session.mode === 'duality') { dualityGivenHTML(); return; }
     if (session.mode === 'dualsimplex') { dsimGivenHTML(); return; }
+    if (session.mode === 'sensitivity') { sensGivenHTML(); return; }
     var p = session.problem;
     var html = '<h2>התרגיל</h2><div class="ref-cols"><div class="formulation ltr-math">';
     html += 'Max Z = ' + linComb(p.c) + '<br>s.t.<br>';
@@ -570,6 +613,17 @@
       els.workspace.innerHTML = dsimWorkspaceHTML();
       return;
     }
+    if (session.mode === 'sensitivity') {
+      var sh = sensDataHTML();
+      var sdone = session.stepQueue.slice(0, session.stepIndex);
+      if (sdone.length && session.phase !== 'done') {
+        sh += '<div class="card done-steps"><h3>הניתוח עד כה</h3><div class="mini-row">';
+        sdone.forEach(function (st) { sh += completedHTML(st); });
+        sh += '</div></div>';
+      }
+      els.workspace.innerHTML = sh;
+      return;
+    }
     if (session.phase === 'iter') {
       var g = session.canonical.given;
       html += '<div class="card given"><h3>איטרציה ' + (session.iterIndex + 1) +
@@ -612,9 +666,11 @@
         ? '🔄 בניית הבעיה הדואלית'
         : session.mode === 'dualsimplex'
           ? '⚙️ סימפלקס דואלי · איטרציה ' + (session.iterIndex + 1)
-          : session.phase === 'setup'
-            ? '🚀 פתיחת התרגיל'
-            : '🔁 איטרציה ' + (session.iterIndex + 1);
+          : session.mode === 'sensitivity'
+            ? '🎛️ ניתוח רגישות'
+            : session.phase === 'setup'
+              ? '🚀 פתיחת התרגיל'
+              : '🔁 איטרציה ' + (session.iterIndex + 1);
     card.appendChild(el('h3', 'prompt-title', title));
 
     var applyReveal;
@@ -1199,7 +1255,24 @@
     if (session.mode === 'reverse') { renderReverseFinal(); return; }
     if (session.mode === 'duality') { renderDualityFinal(); return; }
     if (session.mode === 'dualsimplex') { renderDsimFinal(); return; }
+    if (session.mode === 'sensitivity') { renderSensFinal(); return; }
     renderFinalBody();
+  }
+
+  function renderSensFinal() {
+    var res = session.finalResult.sens;
+    var card = el('div', 'card final');
+    card.appendChild(el('h2', null, '🎛️ סיכום ניתוח הרגישות'));
+    card.appendChild(el('p', 'sens-conclusion', res.conclusion || ''));
+    if (session.examMode) {
+      renderExamSummary(card);
+    } else {
+      var hs = Session.helpSummary(session);
+      if (hs.length) card.appendChild(el('p', 'help-tip', 'נעזרת ברמזים ב-' + hs.length + ' שלבים.'));
+      else card.appendChild(el('p', 'no-help', 'ניתחת בלי עזרה — מצוין! 💪'));
+    }
+    card.appendChild(btn('תרגיל חדש', 'btn primary big', function () { onNewProblemCb(); }));
+    els.prompt.appendChild(card);
   }
 
   function renderDsimFinal() {

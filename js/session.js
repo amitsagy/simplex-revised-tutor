@@ -550,6 +550,208 @@
     return s;
   }
 
+  /* ---- sensitivity-analysis drill (targil 10) ---- */
+
+  /** Full optimal state from a stored basis (order matters). All plain data. */
+  function optStateFromBasis(problem, basis) {
+    var full = Engine.buildFullProblem(problem);
+    var total = problem.n + problem.m;
+    var B = basis.slice();
+    var N = [];
+    for (var v = 1; v <= total; v++) if (B.indexOf(v) < 0) N.push(v);
+    var Binv = Engine.invert(Engine.computeBMatrix(full.AFull, B));
+    var cB = Engine.pickCosts(full.cFull, B);
+    var cN = Engine.pickCosts(full.cFull, N);
+    var xB = Engine.computeXB(Binv, problem.b);
+    var y = Engine.computeY(cB, Binv);
+    var NMatrix = Engine.computeNMatrix(full.AFull, N);
+    var rN = Engine.computeRN(cN, y, NMatrix);
+    return { B: B, N: N, Binv: Binv, cB: cB, cN: cN, xB: xB, y: y, NMatrix: NMatrix, rN: rN, full: full };
+  }
+
+  function sensGrid(key, label, dims, correct, extra) {
+    var st = { kind: 'quantity', key: key, quantityId: key, qtype: 'grid',
+      dims: dims, correct: correct, directFill: true, label: label };
+    if (extra) Object.keys(extra).forEach(function (k) { st[k] = extra[k]; });
+    return st;
+  }
+  function sensScalar(key, label, correct, extra) {
+    var st = { kind: 'quantity', key: key, quantityId: key, qtype: 'scalar',
+      correct: correct, directFill: true, label: label };
+    if (extra) Object.keys(extra).forEach(function (k) { st[k] = extra[k]; });
+    return st;
+  }
+  function nn(x) { return x >= -Engine.ENGINE_EPS; }
+  function np(x) { return x <= Engine.ENGINE_EPS; }
+
+  function buildSensitivitySteps(s) {
+    var sn = s.sens, opt = sn.opt, ch = sn.change;
+    var m = sn.problem.m;
+    var steps = [];
+    var res = {};
+
+    if (ch.kind === 'read-opt') {
+      steps.push(sensGrid('sens-xB', 'ערכי המשתנים הבסיסיים xB', [m, 1], colVec(opt.xB),
+        { rowLabels: opt.B.slice(),
+          why: 'ערכי הבסיס נמצאים בעמודת ה-RHS של הטבלה האופטימלית: xB = B⁻¹·b.',
+          scratchPreset: { A: { label: 'B⁻¹', values: opt.Binv }, B: { label: 'b', values: colVec(sn.problem.b) }, resultLabel: 'xB' } }));
+      if (ch.shadow) {
+        steps.push(sensGrid('sens-shadow', 'מחירי הצל yᵀ', [1, m], [opt.y.slice()],
+          { colLabels: opt.y.map(function (_, i) { return 'אילוץ ' + (i + 1); }),
+            why: 'מחירי הצל yᵀ = cB·B⁻¹, ונקראים מהטבלה מתחת למשתני הסרק בשורת ה-Z (בסימן הפוך).',
+            scratchPreset: { A: { label: 'cB', values: [opt.cB] }, B: { label: 'B⁻¹', values: opt.Binv }, resultLabel: 'yᵀ' } }));
+      }
+      res.conclusion = 'קראנו מהטבלה האופטימלית את הפתרון' + (ch.shadow ? ' ואת מחירי הצל' : '') + '.';
+
+    } else if (ch.kind === 'db') {
+      var newXB = Engine.computeXB(opt.Binv, ch.bNew);
+      var feasible = newXB.every(nn);
+      steps.push(sensGrid('sens-xB-new', 'xB החדש (אחרי שינוי b)', [m, 1], colVec(newXB),
+        { rowLabels: opt.B.slice(),
+          why: 'שינוי ב-b משפיע רק על xB: xB_new = B⁻¹·b_new. שורת ה-Z (האופטימליות) אינה משתנה.',
+          scratchPreset: { A: { label: 'B⁻¹', values: opt.Binv }, B: { label: 'b_new', values: colVec(ch.bNew) }, resultLabel: 'xB' } }));
+      steps.push(dualityQuiz('sens-feasible', 'האם הפתרון החדש <b>ישים</b>? (כל רכיבי xB אי-שליליים?)',
+        [{ id: 'yes', label: 'כן — כל הערכים אי-שליליים' }, { id: 'no', label: 'לא — יש ערך שלילי' }],
+        feasible ? 'yes' : 'no',
+        feasible ? 'כל רכיבי xB_new אי-שליליים — הפתרון ישים.' : 'יש רכיב שלילי ב-xB_new — הפתרון אינו ישים.'));
+      steps.push(dualityQuiz('sens-action', '<b>מה עושים כעת?</b>',
+        [{ id: 'nochange', label: 'שום דבר — הפתרון עדיין אופטימלי' },
+          { id: 'dual', label: 'מריצים סימפלקס דואלי (על-אופטימלי ולא ישים)' },
+          { id: 'primal', label: 'מריצים סימפלקס רגיל' }],
+        feasible ? 'nochange' : 'dual',
+        feasible ? 'הבסיס נשאר אופטימלי ו-xB אי-שלילי — אין צורך בשום פעולה נוספת.'
+          : 'הבסיס אופטימלי (שורת Z לא השתנתה) אך הפתרון אינו ישים — זהו בדיוק המצב שבו משתמשים בסימפלקס דואלי.'));
+      res.conclusion = feasible
+        ? 'הפתרון נשאר ישים ואופטימלי: xB_new = ' + fmtVec(newXB) + '.'
+        : 'הפתרון אינו ישים (xB_new = ' + fmtVec(newXB) + ') — יש להריץ סימפלקס דואלי.';
+
+    } else if (ch.kind === 'db-max') {
+      var bi = ch.bIndex;
+      var col = opt.Binv.map(function (r) { return r[bi]; });
+      var maxDec = Infinity, maxInc = Infinity;
+      col.forEach(function (cij, i) {
+        if (cij > Engine.ENGINE_EPS) maxDec = Math.min(maxDec, opt.xB[i] / cij);
+        if (cij < -Engine.ENGINE_EPS) maxInc = Math.min(maxInc, -opt.xB[i] / cij);
+      });
+      var decStr = isFinite(maxDec) ? Parse.formatNumber(maxDec) : '∞';
+      var incStr = isFinite(maxInc) ? Parse.formatNumber(maxInc) : '∞';
+      steps.push(sensScalar('sens-db-max',
+        'בכמה לכל היותר אפשר <b>להקטין</b> את b' + (bi + 1) + ' מבלי לשנות את הבסיס האופטימלי?', maxDec,
+        { why: 'התנאי לישימות: xB + B⁻¹·Δb ≥ 0. עבור שינוי ב-b' + (bi + 1) +
+            ' זהו xB + (עמודה ' + (bi + 1) + ' של B⁻¹)·Δ ≥ 0. הקיטון המקסימלי הוא ' + decStr +
+            ', וההגדלה ' + (isFinite(maxInc) ? 'מוגבלת ל-' + incStr : 'אינה מוגבלת') + '.' }));
+      res.conclusion = 'הקיטון המקסימלי של b' + (bi + 1) + ' הוא ' + decStr +
+        '; ההגדלה ' + (isFinite(maxInc) ? 'עד ' + incStr : 'אינה חסומה') + '.';
+
+    } else if (ch.kind === 'dc-basic') {
+      var pos = opt.B.indexOf(ch.varId);
+      var cBnew = opt.cB.slice(); cBnew[pos] = ch.newC;
+      var yNew = Engine.computeY(cBnew, opt.Binv);
+      var rNnew = Engine.computeRN(opt.cN, yNew, opt.NMatrix);
+      var Znew = Engine.computeZ(cBnew, opt.xB);
+      var stillOpt = rNnew.every(np);
+      steps.push(sensGrid('sens-rN-new', 'שורת המקדמים המתוקנים rN (החדשה)', [1, opt.N.length], [rNnew],
+        { colLabels: opt.N.slice(),
+          why: 'שינוי במקדם של משתנה בסיסי משנה את cB ולכן את שורת ה-0: rN_new = cN − cB_new·B⁻¹·N.',
+          scratchPreset: { A: { label: 'yᵀ חדש (=cB_new·B⁻¹)', values: [yNew] }, B: { label: 'N', values: opt.NMatrix }, D: { label: 'cN', values: [opt.cN] }, resultLabel: 'rN' } }));
+      steps.push(sensScalar('sens-Z-new', 'ערך המטרה החדש Z', Znew,
+        { why: 'Z_new = cB_new·xB.',
+          scratchPreset: { A: { label: 'cB_new', values: [cBnew] }, B: { label: 'xB', values: colVec(opt.xB) }, resultLabel: 'Z' } }));
+      steps.push(dualityQuiz('sens-optimal', 'האם הפתרון עדיין <b>אופטימלי</b>? (כל rN ≤ 0?)',
+        [{ id: 'yes', label: 'כן — כל rN אי-חיוביים' }, { id: 'no', label: 'לא — יש rN חיובי' }],
+        stillOpt ? 'yes' : 'no',
+        stillOpt ? 'כל רכיבי rN_new אי-חיוביים — הבסיס נשאר אופטימלי.'
+          : 'יש רכיב חיובי ב-rN_new — נדרשת עוד איטרציה של סימפלקס רגיל.'));
+      res.conclusion = 'rN_new = ' + fmtVec(rNnew) + ', Z_new = ' + Parse.formatNumber(Znew) + ' — ' +
+        (stillOpt ? 'נשאר אופטימלי.' : 'לא אופטימלי, נדרשת איטרציה נוספת.');
+
+    } else if (ch.kind === 'dc-nonbasic') {
+      var aj = Engine.getColumn(opt.full.AFull, ch.varId);
+      var cjOld = opt.full.cFull[ch.varId - 1];
+      var rjOld = cjOld - Engine.dot(opt.y, aj);
+      if (ch.maxVariant) {
+        var maxIncC = -rjOld;
+        steps.push(sensScalar('sens-cj-max',
+          'בכמה לכל היותר אפשר <b>להגדיל</b> את המקדם c' + ch.varId + ' (של המשתנה הלא-בסיסי) מבלי לשנות את האופטימום?', maxIncC,
+          { why: 'המקדם המתוקן הנוכחי הוא r' + ch.varId + ' = c' + ch.varId + ' − yᵀ·a' + ch.varId + ' = ' + Parse.formatNumber(rjOld) +
+              '. הגדלת c' + ch.varId + ' מגדילה את r' + ch.varId + ' באותה מידה; האופטימליות נשמרת כל עוד r ≤ 0, ולכן ההגדלה המקסימלית היא −r' + ch.varId + ' = ' + Parse.formatNumber(maxIncC) + '.' }));
+        res.conclusion = 'ניתן להגדיל את c' + ch.varId + ' בעד ' + Parse.formatNumber(maxIncC) + ' (עד ש-r' + ch.varId + ' יתאפס).';
+      } else {
+        var rjNew = ch.newC - Engine.dot(opt.y, aj);
+        var stillOptN = rjNew <= Engine.ENGINE_EPS;
+        steps.push(sensScalar('sens-rj-new', 'המקדם המתוקן החדש r' + ch.varId, rjNew,
+          { why: 'r' + ch.varId + '_new = c' + ch.varId + '_new − yᵀ·a' + ch.varId + ' (y אינו משתנה, כי הבסיס לא משתנה).' }));
+        steps.push(dualityQuiz('sens-optimal', 'האם הפתרון עדיין אופטימלי?',
+          [{ id: 'yes', label: 'כן — r ≤ 0' }, { id: 'no', label: 'לא — r > 0' }], stillOptN ? 'yes' : 'no',
+          stillOptN ? 'r' + ch.varId + '_new ≤ 0 — נשאר אופטימלי.' : 'r' + ch.varId + '_new > 0 — כדאי להכניס את המשתנה, נדרשת עוד איטרציה.'));
+        res.conclusion = 'r' + ch.varId + '_new = ' + Parse.formatNumber(rjNew) + ' — ' + (stillOptN ? 'אופטימלי.' : 'לא אופטימלי.');
+      }
+
+    } else if (ch.kind === 'new-var') {
+      var rW = ch.cW - Engine.dot(opt.y, ch.aW);
+      var enters = rW > Engine.ENGINE_EPS;
+      var nW = Engine.computeXB(opt.Binv, ch.aW);
+      var minR = Infinity, leaveRow = -1;
+      nW.forEach(function (v, i) {
+        if (v > Engine.ENGINE_EPS) { var r = opt.xB[i] / v; if (r < minR - Engine.ENGINE_EPS) { minR = r; leaveRow = i; } }
+      });
+      var leaveVar = leaveRow >= 0 ? opt.B[leaveRow] : null;
+      var Zold = Engine.computeZ(opt.cB, opt.xB);
+      var Znew2 = leaveVar != null ? Zold + rW * minR : Zold;
+      steps.push(sensScalar('sens-rW', 'המקדם המתוקן של המשתנה החדש: r = c − yᵀ·a', rW,
+        { why: 'למשתנה חדש מחשבים r = c_new − yᵀ·a_new, כאשר a_new היא עמודת האילוצים של המשתנה החדש.' }));
+      steps.push(dualityQuiz('sens-enter', 'האם כדאי להכניס את המשתנה החדש לבסיס?',
+        [{ id: 'yes', label: 'כן — r > 0 (בבעיית Max)' }, { id: 'no', label: 'לא — r ≤ 0' }], enters ? 'yes' : 'no',
+        enters ? 'r > 0 בבעיית מקסימום — כדאי להכניס את המשתנה, הבסיס הנוכחי כבר לא אופטימלי.'
+          : 'r ≤ 0 — המשתנה החדש לא ישפר את הפתרון, הבסיס נשאר אופטימלי.'));
+      if (enters) {
+        steps.push(sensGrid('sens-nW', 'עמודת המשתנה החדש בטבלו: n = B⁻¹·a', [m, 1], colVec(nW),
+          { rowLabels: opt.B.slice(),
+            why: 'עמודת המשתנה החדש בטבלו הנוכחי היא n = B⁻¹·a_new — עליה מבצעים את מבחן היחס.',
+            scratchPreset: { A: { label: 'B⁻¹', values: opt.Binv }, B: { label: 'a_new', values: colVec(ch.aW) }, resultLabel: 'n' } }));
+        steps.push(dualityQuiz('sens-leave', 'לפי מבחן היחס — <b>איזה משתנה יוצא</b> מהבסיס?',
+          opt.B.map(function (id) { return { id: id, label: 'x' + id }; }), leaveVar,
+          'מבחן היחס על n: היחס הקטן ביותר בשורה ' + (leaveRow + 1) + ' → יוצא x' + leaveVar + '. אחרי הפיבוט ערך המטרה יעלה ל-' + Parse.formatNumber(Znew2) + '.'));
+      }
+      res.conclusion = enters
+        ? 'המשתנה נכנס (r = ' + Parse.formatNumber(rW) + '); יוצא x' + leaveVar + '; אחרי איטרציה אחת Z = ' + Parse.formatNumber(Znew2) + '.'
+        : 'המשתנה החדש אינו משתלם (r = ' + Parse.formatNumber(rW) + '); הפתרון נשאר אופטימלי.';
+      res.Znew = Znew2;
+    }
+
+    s.sens.result = res;
+    return steps;
+  }
+
+  function createSensitivitySession(exercise, opts) {
+    opts = opts || {};
+    var problem = exercise.problem;
+    var s = {
+      problem: { n: problem.n, m: problem.m, c: problem.c, A: problem.A, b: problem.b },
+      mode: 'sensitivity',
+      examMode: !!opts.examMode,
+      phase: 'sensitivity',
+      status: 'in-progress',
+      iterIndex: -1,
+      sens: { problem: problem, opt: optStateFromBasis(problem, exercise.basis),
+        change: exercise.change, title: exercise.title || '' },
+      canonical: null,
+      iterations: [],
+      stepQueue: [],
+      stepIndex: 0,
+      substage: null,
+      history: [],
+      helpLog: [],
+      autoLog: [],
+      errorLog: [],
+      elapsedMs: 0,
+      finalResult: null,
+    };
+    s.stepQueue = buildSensitivitySteps(s);
+    s.substage = initialSubstage(s.stepQueue[0]);
+    return s;
+  }
+
   function createSession(problem, opts) {
     opts = opts || {};
     var full = Engine.buildFullProblem(problem);
@@ -650,6 +852,12 @@
       } else {
         startDsimIteration(s, false);
       }
+      return;
+    }
+    if (s.mode === 'sensitivity') {
+      s.status = 'sensitivity-done';
+      s.phase = 'done';
+      s.finalResult = { sens: s.sens.result };
       return;
     }
     if (s.phase === 'setup') {
@@ -1033,6 +1241,8 @@
     createReverseSession: createReverseSession,
     createDualitySession: createDualitySession,
     createDualSimplexSession: createDualSimplexSession,
+    createSensitivitySession: createSensitivitySession,
+    optStateFromBasis: optStateFromBasis,
     getCurrent: getCurrent,
     submitStepRecall: submitStepRecall,
     submitQuiz: submitQuiz,
