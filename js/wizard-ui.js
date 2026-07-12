@@ -705,19 +705,30 @@
   function hintStrip(applyReveal) {
     var box = el('div', 'hint-strip');
     var texts = el('div', 'hint-texts');
-    var hb = btn('רמז', 'btn hint-btn', function () {
-      if (hintLevel >= 2) {
-        var r = Session.revealCurrent(session);
-        applyReveal(r);
-        texts.appendChild(el('p', 'hint-text revealed-note', 'התשובה נחשפה (נרשם בסיכום העזרה).'));
-        hb.disabled = true;
-        return;
-      }
+    var hb, rb;
+
+    function reveal() {
+      // grab the reasoning BEFORE revealCurrent records the level-3 help
+      var why = Session.getWhyForCurrent(session);
+      var r = Session.revealCurrent(session);
+      applyReveal(r);
+      texts.appendChild(el('p', 'hint-text revealed-note', 'זו התשובה הנכונה (נרשם בסיכום העזרה).'));
+      if (why) texts.appendChild(el('p', 'hint-text why-reveal', '<b>למה זו התשובה:</b> ' + why));
+      hb.disabled = true;
+      rb.disabled = true;
+    }
+
+    hb = btn('רמז', 'btn hint-btn', function () {
+      if (hintLevel >= 2) { reveal(); return; }
       hintLevel++;
       texts.appendChild(el('p', 'hint-text', Session.getHint(session, hintLevel)));
       hb.textContent = hintLevel === 1 ? 'רמז נוסף' : 'חשוף את התשובה';
     });
+    // always-visible direct escape hatch: the correct answer + why, one click
+    rb = btn('👁️ חשוף תשובה + הסבר', 'btn reveal-btn', reveal);
+
     box.appendChild(hb);
+    box.appendChild(rb);
     box.appendChild(texts);
     return box;
   }
@@ -897,7 +908,9 @@
       else {
         fb.textContent = anyInvalid
           ? 'קלט לא תקין — מספר, שבר a/b, או "-" לשורה בלי יחס.'
-          : 'יש שורות שגויות — זכור: יחס מחושב רק כאשר (n̄q)ᵢ חיובי.';
+          : (session.mode === 'dualsimplex'
+            ? 'יש תאים שגויים — היחס מחושב רק בעמודות שבהן מקדם השורה שלילי (אחרת "-").'
+            : 'יש שורות שגויות — זכור: יחס מחושב רק כאשר (n̄q)ᵢ חיובי.');
       }
     }
 

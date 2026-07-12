@@ -410,6 +410,8 @@ select {
   animation: rise 0.2s ease-out;
 }
 .revealed-note { font-weight: 600; }
+.hint-strip .reveal-btn { margin-inline-start: 8px; font-size: 0.9rem; opacity: 0.9; }
+.why-reveal { border-inline-start-color: var(--accent); }
 
 /* column picker */
 

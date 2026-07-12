@@ -486,12 +486,18 @@
       'בוחרים את המשתנה הבסיסי בשורה עם ה-RHS השלילי ביותר: כאן ' + tblName(cur, dc.leaveVar) +
       ' (RHS = ' + Parse.formatNumber(cur.rhs[dc.leaveRow]) + ').'));
 
+    var ratioDetail = dc.ratios.map(function (r, k) {
+      return r === null ? null : tblName(cur, cur.vars[k]) + ': |' +
+        Parse.formatNumber(cur.zRow[k]) + ' ÷ ' + Parse.formatNumber(cur.rows[dc.leaveRow][k]) +
+        '| = ' + Parse.formatNumber(r);
+    }).filter(Boolean).join(' ; ');
     steps.push({ kind: 'quantity', key: 'ds-ratios', quantityId: 'ds-ratios', qtype: 'ratios',
       correct: dc.ratios.slice(), directFill: true, rowLabels: cur.names.slice(),
       label: 'מבחן היחס',
       ratioPrompt: 'בשורת המשתנה היוצא (' + tblName(cur, dc.leaveVar) +
         ') חשב בכל עמודה |מקדם שורת ה-Z ÷ מקדם השורה| — רק כאשר מקדם השורה שלילי. בעמודות האחרות סמן "-".',
-      why: 'מבחן היחס הדואלי: המינימום, על העמודות שבהן מקדם שורת היוצא שלילי, של |r_k ÷ a_k|. הבחירה הזו שומרת על אי-חיוביות שורת ה-Z (כלומר על האופטימליות).' });
+      why: 'מבחן היחס הדואלי: המינימום, על העמודות שבהן מקדם שורת היוצא שלילי, של |מקדם שורת ה-Z ÷ מקדם השורה|. ' +
+        'כאן: ' + ratioDetail + '. המינימום קובע את המשתנה הנכנס, והבחירה שומרת על אי-חיוביות שורת ה-Z (האופטימליות).' });
 
     var candVars = [];
     dc.ratios.forEach(function (r, k) { if (r !== null) candVars.push(cur.vars[k]); });
